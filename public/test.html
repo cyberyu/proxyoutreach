@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Proposals API Test</title>
+</head>
+<body>
+    <h1>Proposals API Test</h1>
+    <div id="result"></div>
+    <div id="error" style="color: red;"></div>
+
+    <script>
+        async function testAPI() {
+            try {
+                console.log('Testing proposals API...');
+                const response = await fetch('/api/proposals?limit=5');
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Data received:', data);
+                
+                document.getElementById('result').innerHTML = `
+                    <h2>Success!</h2>
+                    <p>Received ${data.proposals.length} proposals</p>
+                    <p>Total: ${data.pagination.total}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('error').innerHTML = `
+                    <h2>Error!</h2>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+        
+        // Run test when page loads
+        window.onload = testAPI;
+    </script>
+</body>
+</html>

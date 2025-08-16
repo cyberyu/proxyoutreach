@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Partial Script Test</title>
+</head>
+<body>
+    <h1>Partial Script Test</h1>
+    <button onclick="testPartial()">Test Partial</button>
+    <div id="output"></div>
+    
+    <script>
+        function testPartial() {
+            document.getElementById('output').innerHTML = 'Testing partial script...<br>';
+            
+            // Test if global variables exist
+            if (typeof accounts !== 'undefined') {
+                document.getElementById('output').innerHTML += 'accounts variable exists<br>';
+            } else {
+                document.getElementById('output').innerHTML += 'accounts variable NOT found<br>';
+            }
+        }
+    </script>
+    
+    <!-- Load partial script -->
+    <script src="script_partial.js"></script>
+</body>
+</html>

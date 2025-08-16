@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic Script Test</title>
+</head>
+<body>
+    <h1>Basic Script Test</h1>
+    <button onclick="basicTest()">Basic Test</button>
+    <button onclick="checkScript()">Check Script Loading</button>
+    <div id="output"></div>
+    
+    <script>
+        function basicTest() {
+            alert('Basic JavaScript works!');
+            document.getElementById('output').innerHTML = 'Basic test worked!';
+        }
+        
+        function checkScript() {
+            console.log('Checking script loading...');
+            document.getElementById('output').innerHTML = 'Checking script...<br>';
+            
+            // Check if main script variables exist
+            if (typeof proposals !== 'undefined') {
+                document.getElementById('output').innerHTML += 'proposals variable exists<br>';
+            } else {
+                document.getElementById('output').innerHTML += 'proposals variable NOT found<br>';
+            }
+            
+            // Check if main functions exist
+            if (typeof viewProposalAccounts === 'function') {
+                document.getElementById('output').innerHTML += 'viewProposalAccounts function exists<br>';
+            } else {
+                document.getElementById('output').innerHTML += 'viewProposalAccounts function NOT found<br>';
+            }
+            
+            // Check if DOM elements exist
+            const container = document.getElementById('proposalAccountsContainer');
+            if (container) {
+                document.getElementById('output').innerHTML += 'proposalAccountsContainer element exists<br>';
+            } else {
+                document.getElementById('output').innerHTML += 'proposalAccountsContainer element NOT found<br>';
+            }
+        }
+        
+        // Test script loading
+        window.onload = function() {
+            setTimeout(function() {
+                console.log('Page loaded, testing script...');
+                checkScript();
+            }, 1000);
+        };
+    </script>
+    
+    <!-- Load the main script -->
+    <script src="script.js"></script>
+</body>
+</html>

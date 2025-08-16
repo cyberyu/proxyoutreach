@@ -1,0 +1,48 @@
+node_modules/
+uploads/
+.env
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.sql.backup
+temp/
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+*.sql
+
+# Backup directories
+backups/
+
+# Additional OS files
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory
+coverage/
+
+# Cache directories
+.cache/
+.parcel-cache/
+
+# Build outputs
+dist/
+build/

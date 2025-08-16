@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Test</title>
+</head>
+<body>
+    <h1>Minimal Test</h1>
+    <button onclick="testFunction()">Test Function</button>
+    <div id="output"></div>
+    
+    <script>
+        // Minimal test function
+        function testFunction() {
+            document.getElementById('output').innerHTML = 'Function works!';
+            console.log('Test function called');
+            alert('Test function works!');
+        }
+        
+        // Test that we can define the main function
+        function viewProposalAccounts(id) {
+            alert('viewProposalAccounts called with id: ' + id);
+            console.log('viewProposalAccounts called with id:', id);
+        }
+        
+        // Test calling it
+        function testViewProposal() {
+            viewProposalAccounts(123);
+        }
+        
+        console.log('Minimal script loaded successfully');
+    </script>
+    
+    <button onclick="testViewProposal()">Test viewProposalAccounts</button>
+</body>
+</html>

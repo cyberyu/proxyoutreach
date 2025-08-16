@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Accounts View</title>
+</head>
+<body>
+    <h1>Test Accounts View</h1>
+    <button onclick="testAccountsView()">Test Direct Accounts View</button>
+    <button onclick="testContainerShow()">Test Container Show/Hide</button>
+    <div id="result"></div>
+    
+    <script>
+        function testAccountsView() {
+            console.log('Testing accounts view...');
+            // Test if we can call the function directly
+            if (typeof viewProposalAccounts === 'function') {
+                console.log('viewProposalAccounts function exists');
+                viewProposalAccounts(279); // Use a known proposal ID
+            } else {
+                console.error('viewProposalAccounts function not found');
+                alert('Function not found - script.js not loaded?');
+            }
+        }
+        
+        function testContainerShow() {
+            console.log('Testing container show/hide...');
+            const container = document.getElementById('proposalAccountsContainer');
+            const proposalsCard = document.getElementById('proposalsCard');
+            
+            if (container) {
+                console.log('Container found, showing...');
+                container.style.display = 'block';
+                document.getElementById('result').innerHTML = 'Container shown!';
+            } else {
+                console.error('Container not found');
+                document.getElementById('result').innerHTML = 'Container NOT found!';
+            }
+            
+            if (proposalsCard) {
+                console.log('Proposals card found, hiding...');
+                proposalsCard.style.display = 'none';
+            } else {
+                console.log('Proposals card not found');
+            }
+        }
+    </script>
+    
+    <!-- Load the main script -->
+    <script src="script.js"></script>
+</body>
+</html>

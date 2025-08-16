@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard Test</title>
+    <script src="script.js"></script>
+</head>
+<body>
+    <h1>Dashboard Numbers Test</h1>
+    <p>Total Proposals: <span id="totalProposals">-</span></p>
+    <p>Voted Accounts: <span id="votedAccounts">-</span></p>
+    <p>Unvoted Accounts: <span id="unvotedAccounts">-</span></p>
+    <p>Pending Outreach: <span id="pendingOutreach">-</span></p>
+    
+    <button onclick="testDashboard()">Test Dashboard Load</button>
+    <button onclick="testAPI()">Test API Direct</button>
+    
+    <script>
+        function testDashboard() {
+            console.log('Testing dashboard load...');
+            loadDashboardData();
+        }
+        
+        async function testAPI() {
+            console.log('Testing API direct...');
+            try {
+                const response = await fetch('/api/dashboard');
+                const data = await response.json();
+                console.log('API Data:', data);
+                alert('API returned: ' + JSON.stringify(data));
+            } catch (error) {
+                console.error('API Error:', error);
+                alert('API Error: ' + error.message);
+            }
+        }
+        
+        // Also run on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, testing dashboard...');
+            setTimeout(() => {
+                console.log('Elements check:');
+                console.log('totalProposals:', document.getElementById('totalProposals'));
+                console.log('votedAccounts:', document.getElementById('votedAccounts'));
+                console.log('unvotedAccounts:', document.getElementById('unvotedAccounts'));
+                console.log('pendingOutreach:', document.getElementById('pendingOutreach'));
+                
+                testDashboard();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Test</title>
+</head>
+<body>
+    <h1>Simple Dashboard Test</h1>
+    <p>Total Proposals: <span id="totalProposals">-</span></p>
+    <button onclick="manualTest()">Manual Test</button>
+    <div id="log"></div>
+    
+    <script>
+        function log(msg) {
+            console.log(msg);
+            document.getElementById('log').innerHTML += '<div>' + msg + '</div>';
+        }
+        
+        async function manualTest() {
+            log('=== Starting manual test ===');
+            
+            // Test 1: Check element
+            const element = document.getElementById('totalProposals');
+            log('Element found: ' + (element ? 'YES' : 'NO'));
+            if (element) {
+                log('Current content: "' + element.textContent + '"');
+            }
+            
+            // Test 2: Test API
+            try {
+                log('Calling API...');
+                const response = await fetch('/api/dashboard');
+                log('Response status: ' + response.status);
+                const data = await response.json();
+                log('Data received: ' + JSON.stringify(data));
+                
+                // Test 3: Update element
+                if (element) {
+                    element.textContent = data.totalProposals;
+                    log('Updated element to: ' + data.totalProposals);
+                    log('Element now shows: "' + element.textContent + '"');
+                }
+                
+            } catch (error) {
+                log('ERROR: ' + error.message);
+            }
+            
+            log('=== Test complete ===');
+        }
+        
+        // Auto-run on load
+        window.onload = function() {
+            setTimeout(manualTest, 500);
+        };
+    </script>
+</body>
+</html>

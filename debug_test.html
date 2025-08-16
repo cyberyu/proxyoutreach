@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Dashboard</title>
+</head>
+<body>
+    <h1>Debug Dashboard API</h1>
+    <div id="result"></div>
+    <div id="error" style="color: red;"></div>
+
+    <script>
+        async function testDashboardAPI() {
+            try {
+                console.log('Testing dashboard API...');
+                const response = await fetch('/api/dashboard');
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Dashboard data received:', data);
+                
+                document.getElementById('result').innerHTML = `
+                    <h2>Dashboard API Success!</h2>
+                    <p>Total Proposals: ${data.totalProposals}</p>
+                    <p>Voted Accounts: ${data.votedAccounts}</p>
+                    <p>Unvoted Accounts: ${data.unvotedAccounts}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+                // Now test DOM manipulation
+                const testDiv = document.createElement('div');
+                testDiv.id = 'testElement';
+                testDiv.textContent = '-';
+                document.body.appendChild(testDiv);
+                
+                // Try to update it
+                setTimeout(() => {
+                    const element = document.getElementById('testElement');
+                    if (element) {
+                        element.textContent = data.totalProposals;
+                        console.log('DOM update successful');
+                    } else {
+                        console.error('Could not find test element');
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('error').innerHTML = `
+                    <h2>Error!</h2>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+        
+        function testProposalsClick() {
+            console.log('Testing proposals click...');
+            alert('Proposals click test worked!');
+        }
+        
+        // Run test when page loads
+        window.onload = testDashboardAPI;
+    </script>
+    
+    <button onclick="testProposalsClick()">Test Proposals Click</button>
+    <div>Test Element: <span id="testElement">-</span></div>
+</body>
+</html>
