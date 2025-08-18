@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  proxy-outreach-app:
+    build: .
+    container_name: proxy-outreach-container
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MYSQL_ROOT_PASSWORD=rootpass
+      - MYSQL_DATABASE=proxy
+      - MYSQL_USER=webapp
+      - MYSQL_PASSWORD=webapppass
+    volumes:
+      - ./uploads:/usr/src/app/uploads
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  mysql_data:
+    driver: local

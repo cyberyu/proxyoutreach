@@ -175,6 +175,13 @@ const db = mysql.createConnection({
 
 Check the console output when running the server for detailed error messages.
 
+## Documentation
+
+- **[Docker Deployment](DOCKER.md)** - Complete containerization guide
+- **[Docker Pre-loaded Database](DOCKER-PRELOADED.md)** - Fast startup with pre-loaded data
+- **[Large File Management](LARGE_FILES.md)** - Git repository size management
+- **[Development Setup](DATABASE.md)** - Database configuration and setup
+
 ## Security Notes
 
 - Change default MySQL credentials

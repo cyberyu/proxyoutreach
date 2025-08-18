@@ -1,34 +1,78 @@
+# Node.js dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Application uploads and temp files
 uploads/
-.env
-*.log
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.sql.backup
 temp/
 
-# Data files
-*.csv
-*.xlsx
-*.xls
-*.sql
+# Environment and configuration files
+.env
+.env.local
+.env.*.local
 
-# Backup directories
-backups/
+# Log files
+*.log
+logs/
 
-# Additional OS files
+# OS generated files
+.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+Thumbs.db
 
-# Editor files
+# Editor and IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
+
+# Data files (potentially large)
+*.csv
+*.xlsx
+*.xls
+*.tsv
+*.json.backup
+
+# Database files and backups
+*.sql
+*.sql.backup
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker and container data
+docker/mysql-data/
+docker/proxy_backup.sql
+*.tar.gz
+*.tar
+*.zip
+
+# MySQL/Database specific
+*.ibd
+*.frm
+*.MYD
+*.MYI
+binlog.*
+*.pid
+
+# Archive files
+*.rar
+*.7z
+*.gz
+*.bz2
+*.xz
+
+# Large backup files
+backups/
+backup_*
+*backup*
 
 # Runtime data
 pids/
@@ -38,11 +82,41 @@ pids/
 
 # Coverage directory
 coverage/
+.nyc_output/
 
 # Cache directories
 .cache/
 .parcel-cache/
+.npm/
+.yarn/
 
 # Build outputs
 dist/
 build/
+out/
+
+# Temporary files
+tmp/
+.tmp/
+
+# Large media files
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.mp3
+*.wav
+*.flac
+
+# Documentation builds
+docs/_build/
+
+# Python cache (if any Python scripts)
+__pycache__/
+*.pyc
+*.pyo
+
+# Additional Node.js
+.eslintcache
+.stylelintcache

@@ -1,0 +1,25 @@
+# Git LFS tracking for potentially large files
+# This ensures large files are stored in Git LFS instead of the main repository
+
+# Database dumps and backups
+*.sql filter=lfs diff=lfs merge=lfs -text
+*.sql.gz filter=lfs diff=lfs merge=lfs -text
+*.db filter=lfs diff=lfs merge=lfs -text
+
+# Archive files
+*.tar.gz filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.rar filter=lfs diff=lfs merge=lfs -text
+
+# Large data files
+*.csv filter=lfs diff=lfs merge=lfs -text
+*.xlsx filter=lfs diff=lfs merge=lfs -text
+
+# Media files
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
+
+# Binary database files
+*.ibd filter=lfs diff=lfs merge=lfs -text
+*.frm filter=lfs diff=lfs merge=lfs -text

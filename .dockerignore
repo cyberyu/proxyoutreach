@@ -1,0 +1,27 @@
+# Docker ignore file for proxy_account_outreach
+.git
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+node_modules
+npm-debug.log
+.env
+.env.local
+.env.*.local
+coverage
+.nyc_output
+.cache
+.parcel-cache
+.next
+.nuxt
+dist
+.vuepress/dist
+.serverless
+.fusebox/
+.dynamodb/
+.tern-port
+logs
+*.log
+.DS_Store
+Thumbs.db

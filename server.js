@@ -82,6 +82,29 @@ function initializeDatabase() {
     )
   `;
 
+  // Create outreach table (make schema identical to account_unvoted) and migrate if needed
+  const createOutreachTable = `
+    CREATE TABLE IF NOT EXISTS outreach (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      row_index INT NULL,
+      unnamed_col VARCHAR(255) NULL,
+      account_hash_key VARCHAR(255) NOT NULL,
+      proposal_master_skey BIGINT NULL,
+      director_master_skey BIGINT NULL,
+      account_type VARCHAR(100) NULL,
+      shares_summable DECIMAL(20,2) NULL,
+      rank_of_shareholding INT NULL,
+      score_model1 DECIMAL(10,6) NULL,
+      prediction_model1 TINYINT NULL,
+      Target_encoded INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
+      INDEX idx_outreach_hash (account_hash_key),
+      INDEX idx_outreach_pm (proposal_master_skey),
+      INDEX idx_outreach_dm (director_master_skey)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `;
+
   db.query(createAccountsTable, (err) => {
     if (err) console.error('Error creating accounts table:', err);
     else console.log('Accounts table ready');
@@ -90,6 +113,71 @@ function initializeDatabase() {
   db.query(createOutreachLogsTable, (err) => {
     if (err) console.error('Error creating outreach_logs table:', err);
     else console.log('Outreach logs table ready');
+  });
+
+  db.query(createOutreachTable, (err) => {
+    if (err) console.error('Error creating outreach table:', err);
+    else console.log('Outreach table ready (schema aligned with account_unvoted)');
+
+    // Simple migration: Check if table has new schema, if not recreate it
+    db.query("SHOW COLUMNS FROM outreach LIKE 'account_hash_key'", (err, checkResult) => {
+      if (err) {
+        console.log('Migration check failed:', err.message);
+        return;
+      }
+      
+      if (checkResult.length === 0) {
+        console.log('Outreach table needs schema migration - recreating...');
+        
+        // Backup any existing data first
+        db.query('SELECT * FROM outreach', (err, backupData) => {
+          if (err) {
+            console.log('No existing data to backup');
+            backupData = [];
+          } else {
+            console.log(`Backing up ${backupData.length} existing outreach records`);
+          }
+          
+          // Drop and recreate with new schema
+          db.query('DROP TABLE IF EXISTS outreach', (err) => {
+            if (err) {
+              console.log('Error dropping outreach table:', err.message);
+              return;
+            }
+            
+            const newTableSQL = `
+              CREATE TABLE outreach (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                row_index INT NULL,
+                unnamed_col VARCHAR(255) NULL,
+                account_hash_key VARCHAR(255) NOT NULL,
+                proposal_master_skey BIGINT NULL,
+                director_master_skey BIGINT NULL,
+                account_type VARCHAR(100) NULL,
+                shares_summable DECIMAL(20,2) NULL,
+                rank_of_shareholding INT NULL,
+                score_model1 DECIMAL(10,6) NULL,
+                prediction_model1 TINYINT NULL,
+                Target_encoded INT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
+                INDEX idx_outreach_hash (account_hash_key),
+                INDEX idx_outreach_pm (proposal_master_skey),
+                INDEX idx_outreach_dm (director_master_skey)
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `;
+            
+            db.query(newTableSQL, (err) => {
+              if (err) {
+                console.log('Error recreating outreach table:', err.message);
+              } else {
+                console.log('Outreach table recreated with account_unvoted-compatible schema');
+              }
+            });
+          });
+        });
+      }
+    });
   });
 }
 
@@ -446,23 +534,9 @@ app.get('/api/proposals', (req, res) => {
     
     const total = countResult[0].total;
     
-    // Get proposals data
-    const dataQuery = `
-      SELECT 
-        id,
-        proposal_master_skey,
-        director_master_skey,
-        issuer_name,
-        category,
-        subcategory,
-        prediction_correct,
-        approved,
-        for_percentage,
-        against_percentage,
-        abstain_percentage,
-        final_key,
-        job_number,
-        proposal
+  // Get proposals data (all columns)
+  const dataQuery = `
+      SELECT *
       FROM proposals_predictions 
       ${whereClause}
       ORDER BY id DESC
@@ -559,24 +633,68 @@ app.get('/api/proposal-accounts', (req, res) => {
             return res.status(500).json({ error: 'Database error' });
           }
 
-          res.json({
-            voted: votedRows,
-            unvoted: unvotedRows,
-            pagination: {
-              page: page,
-              per_page: limit,
-              voted: {
-                total: totalVoted,
-                total_pages: Math.ceil(totalVoted / limit)
-              },
-              unvoted: {
-                total: totalUnvoted,
-                total_pages: Math.ceil(totalUnvoted / limit)
-              }
+          // Check which unvoted accounts already exist in outreach table
+          if (unvotedRows.length > 0) {
+            const unvotedHashKeys = unvotedRows.map(row => row.account_hash_key).filter(key => key);
+            
+            if (unvotedHashKeys.length > 0) {
+              const outreachCheckPlaceholders = unvotedHashKeys.map(() => '?').join(',');
+              const outreachCheckQ = `
+                SELECT account_hash_key, proposal_master_skey, director_master_skey 
+                FROM outreach 
+                WHERE account_hash_key IN (${outreachCheckPlaceholders}) AND ${whereClause}
+              `;
+              
+              db.query(outreachCheckQ, [...unvotedHashKeys, pm || dm], (err, outreachRows) => {
+                if (err) {
+                  console.error('Error checking outreach status:', err);
+                  // Continue without outreach status if there's an error
+                  sendResponse(votedRows, unvotedRows, []);
+                } else {
+                  sendResponse(votedRows, unvotedRows, outreachRows);
+                }
+              });
+            } else {
+              sendResponse(votedRows, unvotedRows, []);
             }
-          });
+          } else {
+            sendResponse(votedRows, unvotedRows, []);
+          }
         });
       });
+
+      function sendResponse(votedRows, unvotedRows, outreachRows) {
+        // Create a Set of composite keys for quick lookup
+        const outreachKeys = new Set(
+          outreachRows.map(row => `${row.account_hash_key}_${row.proposal_master_skey}_${row.director_master_skey}`)
+        );
+
+        // Add in_outreach flag to each unvoted account
+        const enrichedUnvotedRows = unvotedRows.map(row => {
+          const compositeKey = `${row.account_hash_key}_${row.proposal_master_skey}_${row.director_master_skey}`;
+          return {
+            ...row,
+            in_outreach: outreachKeys.has(compositeKey)
+          };
+        });
+
+        res.json({
+          voted: votedRows,
+          unvoted: enrichedUnvotedRows,
+          pagination: {
+            page: page,
+            per_page: limit,
+            voted: {
+              total: totalVoted,
+              total_pages: Math.ceil(totalVoted / limit)
+            },
+            unvoted: {
+              total: totalUnvoted,
+              total_pages: Math.ceil(totalUnvoted / limit)
+            }
+          }
+        });
+      }
     });
   });
 });
@@ -597,3 +715,131 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
+// Bulk add selected unvoted accounts to outreach (store full unvoted row). Composite unique: (account_hash_key, proposal_master_skey, director_master_skey)
+app.post('/api/outreach/bulk-add', (req, res) => {
+  console.log('=== Bulk-add outreach request ===');
+  console.log('req.body:', JSON.stringify(req.body, null, 2));
+  
+  const accounts = Array.isArray(req.body.accounts) ? req.body.accounts : [];
+  console.log('accounts array length:', accounts.length);
+  console.log('accounts sample:', accounts.slice(0, 2));
+  
+  if (!accounts.length) return res.status(400).json({ error: 'No accounts provided' });
+
+  // Determine key context (proposal_master_skey or director_master_skey)
+  const sample = accounts.find(a => a && (a.key_param || a.keyParam));
+  let keyParam = req.body.key_param || req.body.keyParam || (sample ? (sample.key_param || sample.keyParam) : null);
+  let keyValue = req.body.key_value ?? req.body.keyValue ?? (sample ? (sample.key_value ?? sample.keyValue) : null);
+  
+  console.log('keyParam:', keyParam, 'keyValue:', keyValue);
+
+  if (!keyParam || (keyValue === undefined || keyValue === null || keyValue === '')) {
+    return res.status(400).json({ error: 'Missing key_param/key_value context' });
+  }
+  if (keyParam !== 'proposal_master_skey' && keyParam !== 'director_master_skey') {
+    return res.status(400).json({ error: 'Invalid key_param. Use proposal_master_skey or director_master_skey' });
+  }
+
+  // Collect account_hash_key values (accept legacy field name account_id as fallback)
+  const hashKeysRaw = accounts.map(a => (a && (a.account_hash_key || a.accountHashKey || a.account_id || a.id)) ? String(a.account_hash_key || a.accountHashKey || a.account_id || a.id) : '').filter(v => v && v.trim() !== '');
+  const hashKeysSet = new Set(hashKeysRaw);
+  const hashKeys = Array.from(hashKeysSet);
+  console.log('hashKeysRaw:', hashKeysRaw);
+  console.log('hashKeys:', hashKeys);
+  
+  if (!hashKeys.length) return res.status(400).json({ error: 'No account_hash_key values provided' });
+
+  const placeholders = hashKeys.map(() => '?').join(',');
+  const whereKeyClause = `${keyParam} = ?`;
+
+  const countSql = `SELECT COUNT(*) AS cnt FROM account_unvoted WHERE account_hash_key IN (${placeholders}) AND ${whereKeyClause}`;
+  const insertSql = `
+    INSERT IGNORE INTO outreach (
+      row_index, unnamed_col, account_hash_key, proposal_master_skey, director_master_skey,
+      account_type, shares_summable, rank_of_shareholding, score_model1, prediction_model1, Target_encoded
+    )
+    SELECT 
+      row_index, unnamed_col, account_hash_key, proposal_master_skey, director_master_skey,
+      account_type, shares_summable, rank_of_shareholding, score_model1, prediction_model1, Target_encoded
+    FROM account_unvoted
+    WHERE account_hash_key IN (${placeholders}) AND ${whereKeyClause}
+  `;
+
+  const params = [...hashKeys, keyValue];
+
+  db.query(countSql, params, (err, countRows) => {
+    if (err) {
+      console.error('Error counting account_unvoted for outreach insert:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    const toSelect = (countRows && countRows[0] && countRows[0].cnt) ? Number(countRows[0].cnt) : 0;
+
+    // First, get detailed info about what will be inserted vs what already exists
+    const detailSql = `
+      SELECT 
+        u.account_hash_key, 
+        u.proposal_master_skey, 
+        u.director_master_skey,
+        u.shares_summable,
+        CASE WHEN o.account_hash_key IS NOT NULL THEN 1 ELSE 0 END as already_exists
+      FROM account_unvoted u
+      LEFT JOIN outreach o ON (
+        u.account_hash_key = o.account_hash_key AND 
+        u.proposal_master_skey = o.proposal_master_skey AND 
+        u.director_master_skey = o.director_master_skey
+      )
+      WHERE u.account_hash_key IN (${placeholders}) AND u.${whereKeyClause}
+    `;
+
+    db.query(detailSql, params, (err, detailRows) => {
+      if (err) {
+        console.error('Error getting detail info for outreach insert:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      const toInsert = detailRows.filter(row => !row.already_exists);
+      const duplicates = detailRows.filter(row => row.already_exists);
+      
+      // Calculate total shares for accounts being added
+      const totalShares = toInsert.reduce((sum, row) => sum + (parseFloat(row.shares_summable) || 0), 0);
+
+      db.query(insertSql, params, (e2, result) => {
+        if (e2) {
+          console.error('Error inserting into outreach from account_unvoted:', e2);
+          return res.status(500).json({ error: 'Database error' });
+        }
+        
+        const inserted = result && typeof result.affectedRows === 'number' ? result.affectedRows : 0;
+        
+        // Generate duplicate messages
+        const duplicateMessages = duplicates.map(row => 
+          `account_hash_key(${row.account_hash_key})+proposal_master_skey(${row.proposal_master_skey})+director_master_skey(${row.director_master_skey}) is not inserted because it is already in outreach table`
+        );
+
+        res.json({ 
+          inserted, 
+          skipped: duplicates.length,
+          totalShares: totalShares,
+          duplicateMessages: duplicateMessages
+        });
+      });
+    });
+  });
+});
+
+// List all outreach records (identical schema to account_unvoted)
+app.get('/api/outreach', (req, res) => {
+  const sql = `
+    SELECT *
+    FROM outreach
+    ORDER BY created_at DESC, id DESC
+  `;
+  db.query(sql, (err, rows) => {
+    if (err) {
+      console.error('Error fetching outreach records:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    res.json(rows);
+  });
+});
