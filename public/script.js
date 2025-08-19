@@ -99,7 +99,6 @@ function showSection(sectionName) {
             break;
         case 'proposals':
             loadProposalsData();
-            loadProposalsCategories();
             break;
         case 'accounts':
             // Reset any previously selected unvoted account selections on entering Accounts view
@@ -237,17 +236,7 @@ async function loadProposalsTable() {
     try {
         console.log('Loading proposals table...');
         
-        const predictionFilter = document.getElementById('predictionFilter')?.value || '';
-        const approvalFilter = document.getElementById('approvalFilter')?.value || '';
-        const categoryFilter = document.getElementById('categoryFilter')?.value || '';
-        const searchTerm = document.getElementById('proposalSearchInput')?.value || '';
-        
         let url = `${API_BASE}/api/proposals?page=${currentProposalsPage}&limit=50`;
-        
-        if (predictionFilter) url += `&prediction_correct=${predictionFilter}`;
-        if (approvalFilter) url += `&approved=${approvalFilter}`;
-        if (categoryFilter) url += `&category=${encodeURIComponent(categoryFilter)}`;
-        if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
         
         console.log('Fetching proposals from:', url);
         
@@ -267,29 +256,6 @@ async function loadProposalsTable() {
     } catch (error) {
         console.error('Error loading proposals table:', error);
         showAlert('Error loading proposals table', 'danger');
-    }
-}
-
-async function loadProposalsCategories() {
-    try {
-        const response = await fetch(`${API_BASE}/api/proposals/categories`);
-        const categories = await response.json();
-        
-        const categorySelect = document.getElementById('categoryFilter');
-        if (categorySelect) {
-            // Clear existing options except "All Categories"
-            categorySelect.innerHTML = '<option value="">All Categories</option>';
-            
-            categories.forEach(category => {
-                const option = document.createElement('option');
-                option.value = category;
-                option.textContent = category;
-                categorySelect.appendChild(option);
-            });
-        }
-        
-    } catch (error) {
-        console.error('Error loading categories:', error);
     }
 }
 
@@ -401,16 +367,6 @@ function renderProposalsPagination(pagination) {
 
 function changeProposalsPage(page) {
     currentProposalsPage = page;
-    loadProposalsTable();
-}
-
-function filterProposals() {
-    currentProposalsPage = 1;
-    loadProposalsTable();
-}
-
-function searchProposals() {
-    currentProposalsPage = 1;
     loadProposalsTable();
 }
 
@@ -965,11 +921,24 @@ let currentProposalAccountsState = {
     limit: 1000
 };
 
+// Make it globally accessible
+window.currentProposalAccountsState = currentProposalAccountsState;
+
 // enhance state to remember filters
 currentProposalAccountsState.filters = currentProposalAccountsState.filters || {
     voted: {},
     unvoted: {}
 };
+
+// Global helper function: Robust numeric parser: strips commas/spaces, returns null for empty/non-numeric
+function parseNumberRaw(raw) {
+    if (raw === undefined || raw === null) return null;
+    const s = String(raw).trim().replace(/,/g, '');
+    if (s === '') return null;
+    const n = Number(s);
+    if (!isFinite(n)) return null;
+    return n;
+}
 
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -1009,15 +978,15 @@ function renderProposalLegendSummary(summary) {
     const againstShares = summary.predicted_against_shares !== undefined ? summary.predicted_against_shares : 'N/A';
     const unvotedShares = summary.predicted_unvoted_shares !== undefined ? summary.predicted_unvoted_shares : 'N/A';
 
-    // Calculate additional shares needed if for < against
+    // Calculate additional shares needed if Against > For
     let additionalSharesNeeded = '';
     if (forShares !== 'N/A' && againstShares !== 'N/A') {
         const forNum = parseFloat(String(forShares).replace(/,/g, ''));
         const againstNum = parseFloat(String(againstShares).replace(/,/g, ''));
-        if (!isNaN(forNum) && !isNaN(againstNum) && forNum < againstNum) {
+        if (!isNaN(forNum) && !isNaN(againstNum) && againstNum > forNum) {
             const needed = againstNum - forNum;
             const formattedNeeded = needed.toLocaleString('en-US', {maximumFractionDigits: 2});
-            additionalSharesNeeded = `<li><strong style="color: red;">Additional Shares Needed to Pass:</strong> <span style="color: red; font-weight: bold;">${formattedNeeded}</span></li>`;
+            additionalSharesNeeded = `<li><strong style="color: red; font-weight: bold;">Need additional shares to Pass the Proposal: ${formattedNeeded}</strong></li>`;
         }
     }
 
@@ -1127,7 +1096,12 @@ async function viewProposalAccounts(id, page = 1) {
     const limit = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) : currentProposalAccountsState.limit || 1000;
     currentProposalAccountsState.limit = limit;
 
-    params.append('page', String(page));
+    // Support separate pagination for voted and unvoted accounts
+    const votedPage = currentProposalAccountsState.votedPage || page;
+    const unvotedPage = currentProposalAccountsState.unvotedPage || page;
+    
+    params.append('voted_page', String(votedPage));
+    params.append('unvoted_page', String(unvotedPage));
     params.append('limit', String(limit));
 
     // include persisted filters in the query string so server can apply them if implemented server-side later
@@ -1177,8 +1151,9 @@ async function viewProposalAccounts(id, page = 1) {
         currentProposalAccountsState.rawVoted = Array.isArray(data.voted) ? data.voted : [];
         currentProposalAccountsState.rawUnvoted = Array.isArray(data.unvoted) ? data.unvoted : [];
         currentProposalAccountsState.pagination = data.pagination || {};
+        currentProposalAccountsState.totals = data.totals || {};
         
-        // Auto-select accounts that are already in outreach table
+        // Auto-select accounts that are already in outreach table (UNVOTED ACCOUNTS ONLY)
         if (Array.isArray(data.unvoted)) {
             data.unvoted.forEach((row, idx) => {
                 if (row.in_outreach === true) {
@@ -1218,6 +1193,31 @@ async function viewProposalAccounts(id, page = 1) {
     }
 }
 
+// Setup page size change handler
+function setupPageSizeHandler() {
+    const pageSizeSelect = document.getElementById('proposalAccountsPageSize');
+    if (pageSizeSelect && !pageSizeSelect.hasPageSizeListener) {
+        pageSizeSelect.addEventListener('change', function() {
+            const newLimit = parseInt(this.value, 10);
+            console.log('Page size changed to:', newLimit);
+            
+            // Update the current state
+            if (currentProposalAccountsState) {
+                currentProposalAccountsState.limit = newLimit;
+                // Reset to page 1 when changing page size
+                currentProposalAccountsState.votedPage = 1;
+                currentProposalAccountsState.unvotedPage = 1;
+                
+                // Refetch data with new page size
+                if (currentProposalAccountsState.proposalId) {
+                    viewProposalAccounts(currentProposalAccountsState.proposalId, 1);
+                }
+            }
+        });
+        pageSizeSelect.hasPageSizeListener = true;
+    }
+}
+
 function renderProposalAccountsModal(proposal, data) {
     // keep original modal function name but render inline instead
     renderProposalAccountsInline(proposal, data);
@@ -1246,7 +1246,7 @@ function renderProposalAccountsInline(proposal, data) {
     // Show score_model2 / prediction_model2 for VOTED accounts
     // and score_model1 / prediction_model1 for UNVOTED accounts.
     // Include the new columns: account_hash_key and Target_encoded
-    const votedExclusions = [...commonExclusions, 'score_model1', 'prediction_model1'];
+    const votedExclusions = [...commonExclusions, 'score_model1', 'prediction_model1', 'in_outreach'];
     const unvotedExclusions = [...commonExclusions, 'score_model2', 'prediction_model2'];
 
     const votedHeaders = allHeaders.filter(h => !votedExclusions.includes(h));
@@ -1301,19 +1301,28 @@ function renderProposalAccountsInline(proposal, data) {
         let predicted_unvoted = 0;
         let computed = false;
 
-        // sum unvoted shares
-        predicted_unvoted = (unvoted || []).reduce((acc, r) => {
-            const v = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
-            return acc + (v === null ? 0 : v);
-        }, 0);
+        // Use server-provided totals for accurate proposal-level summary
+        predicted_unvoted = currentProposalAccountsState.totals && currentProposalAccountsState.totals.unvoted_shares !== undefined 
+            ? currentProposalAccountsState.totals.unvoted_shares 
+            : (unvoted || []).reduce((acc, r) => {
+                const v = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
+                return acc + (v === null ? 0 : v);
+            }, 0);
 
-        if (predField) {
-            const allRows = [...(voted || []), ...(unvoted || [])];
-            allRows.forEach(r => {
+        // Use server-provided For/Against totals if available, otherwise calculate from current data
+        if (currentProposalAccountsState.totals && 
+            currentProposalAccountsState.totals.voted_for_shares !== undefined && 
+            currentProposalAccountsState.totals.voted_against_shares !== undefined) {
+            predicted_for = currentProposalAccountsState.totals.voted_for_shares;
+            predicted_against = currentProposalAccountsState.totals.voted_against_shares;
+            computed = true;
+        } else if (predField) {
+            // Fallback: Calculate For/Against shares from VOTED accounts only (actual votes)
+            (voted || []).forEach(r => {
                 const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
                 const p = r && (r[predField] === 1 || r[predField] === '1' || r[predField] === true) ? 1 : (r && (r[predField] === 0 || r[predField] === '0' || r[predField] === false) ? 0 : null);
-                if (s !== null && p === 1) predicted_for += s;
-                if (s !== null && p === 0) predicted_against += s;
+                if (s !== null && p === 0) predicted_for += s;  // prediction_model2=0 means "For"
+                if (s !== null && p === 1) predicted_against += s;  // prediction_model2=1 means "Against"
             });
             computed = true;
         }
@@ -1364,7 +1373,7 @@ function renderProposalAccountsInline(proposal, data) {
 
         const headerRowCells = headersWithCheckbox.map(h => {
             if (h === '_checkbox') {
-                return '<th style="width:40px;"></th>';
+                return '<th style="width:120px;">OutReach Selection</th>';
             }
             
             // Create display name with explanations for specific columns
@@ -1376,10 +1385,10 @@ function renderProposalAccountsInline(proposal, data) {
                 explanation = '<div class="small text-muted mt-1">(0: Unvoted, 1: For, 2: Against)</div>';
             } else if (h === 'score_model2') {
                 displayName = 'score_model2';
-                explanation = '<div class="small text-muted mt-1">(0: Strong Against ~ 1: Strong For)</div>';
+                explanation = '<div class="small text-muted mt-1">(0: Strong For ~ 1: Strong Against)</div>';
             } else if (h === 'prediction_model2') {
                 displayName = 'prediction_model2';
-                explanation = '<div class="small text-muted mt-1">(0: Against / 1: For)</div>';
+                explanation = '<div class="small text-muted mt-1">(0: For / 1: Against)</div>';
             } else if (h === 'score_model1') {
                 displayName = 'score_model1';
                 explanation = '<div class="small text-muted mt-1">(0: Strong Unvoted ~ 1: Strong Voted)</div>';
@@ -1392,7 +1401,7 @@ function renderProposalAccountsInline(proposal, data) {
             
             const sortable = ['account_type', 'shares_summable', 'rank_of_shareholding', 'Target_encoded'].includes(h) || h.startsWith('score_model') || h.startsWith('prediction_model');
             if (sortable) {
-                return `<th style="min-width:110px; cursor:pointer;" onclick="toggleSort('${h}', '${sidePrefix}')">${displayName} <span id="${sidePrefix}_sort_${h}" class="text-muted">↕</span>${explanation}</th>`;
+                return `<th style="min-width:110px; cursor:pointer;" onclick="toggleSort('${h}', '${sidePrefix}')">${displayName} <i id="${sidePrefix}_sort_${h}" class="fas fa-sort text-primary ms-2" style="font-size: 14px;"></i>${explanation}</th>`;
             } else {
                 return `<th style="min-width:110px;">${displayName}${explanation}</th>`;
             }
@@ -1400,12 +1409,9 @@ function renderProposalAccountsInline(proposal, data) {
 
         const thead = `<thead class="table-light"><tr>${headerRowCells}</tr><tr>${filterRowCells}</tr></thead>`;
 
-        const CHUNK = 200;
-        const visibleRows = rows._visibleCount || CHUNK;
-        const bodyRows = rows.slice(0, visibleRows);
-        const tbody = `<tbody>${bodyRows.map((row, idx) => {
+        const tbody = `<tbody>${rows.map((row, idx) => {
             let checkboxCell = '';
-            if (addCheckbox) {
+            if (addCheckbox && sidePrefix === 'unvoted') {
                 // Build a unique row key: prefer account_id, then account_hash_key, else use the row index
                 const keyRaw = (row.account_id !== undefined && row.account_id !== null && row.account_id !== '')
                     ? `acc_${row.account_id}`
@@ -1420,7 +1426,7 @@ function renderProposalAccountsInline(proposal, data) {
                 const sharesNum = Number.isFinite(Number(s)) ? Number(s) : 0;
                 
                 // Check if this account is already in outreach table (from backend)
-                // Also maintain compatibility with existing selectedUnvotedProposalRowKeys
+                // Only process in_outreach for unvoted accounts
                 const isInOutreach = row.in_outreach === true;
                 const isManuallySelected = window.selectedUnvotedProposalRowKeys && window.selectedUnvotedProposalRowKeys.has(rowKey);
                 const isChecked = isInOutreach || isManuallySelected;
@@ -1430,8 +1436,7 @@ function renderProposalAccountsInline(proposal, data) {
             }
             return `<tr>${addCheckbox ? checkboxCell : ''}${headers.map(h => `<td title="${escapeHtml(row[h])}">${escapeHtml(row[h])}</td>`).join('')}<td>${row.account_id ? `<button class="btn btn-sm btn-outline-primary" onclick="window.location.href='account.html?id=${encodeURIComponent(row.account_id)}'" title="View Account"><i class="fas fa-user"></i></button>` : ''}</td></tr>`;
         }).join('')}</tbody>`;
-        const moreButton = rows.length > visibleRows ? `<div class="text-center p-2"><button class="btn btn-sm btn-outline-primary" data-visible="${visibleRows}" onclick="(function(btn){const side=btn.closest('.col-lg-6').getAttribute('data-side'); const state = currentProposalAccountsState; const arr = side==='voted'?state.rawVoted:state.rawUnvoted; arr._visibleCount = (arr._visibleCount||${CHUNK}) + ${CHUNK}; renderProposalAccountsInline({id: state.proposalId, issuer_name: ''}, {voted: state.rawVoted, unvoted: state.rawUnvoted, pagination: state.pagination});})(this);">Show more</button></div>` : '';
-        return `<div class="table-responsive" style="max-height:500px; overflow:auto;"><table class="table table-sm table-bordered mb-0">${thead}${tbody}</table></div>${moreButton}`;
+        return `<div class="table-responsive" style="max-height:500px; overflow:auto;"><table class="table table-sm table-bordered mb-0">${thead}${tbody}</table></div>`;
     }
 
     // Prepare filters and rendering
@@ -1441,16 +1446,6 @@ function renderProposalAccountsInline(proposal, data) {
     // Track applied filters (committed) and pending changes
     const appliedFilters = { voted: {}, unvoted: {} };
     const pendingChanged = { voted: false, unvoted: false };
-
-    // Robust numeric parser: strips commas/spaces, returns null for empty/non-numeric
-    function parseNumberRaw(raw) {
-        if (raw === undefined || raw === null) return null;
-        const s = String(raw).trim().replace(/,/g, '');
-        if (s === '') return null;
-        const n = Number(s);
-        if (!isFinite(n)) return null;
-        return n;
-    }
 
     // Apply filters and sorting using the currently committed (applied) filters
     function applyFiltersAndRender() {
@@ -1572,72 +1567,99 @@ function renderProposalAccountsInline(proposal, data) {
         const votedPredField = votedHeaders.includes('prediction_model2') ? 'prediction_model2' : (votedHeaders.find(h => h && h.startsWith && h.startsWith('prediction_model')) || null);
         const totalAccumulatedFor = (currentProposalAccountsState.rawVoted || []).reduce((acc, r) => {
             const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
-            const p = r && votedPredField ? (r[votedPredField] === 1 || r[votedPredField] === '1' || r[votedPredField] === true) : false;
+            const p = r && votedPredField ? (r[votedPredField] === 0 || r[votedPredField] === '0' || r[votedPredField] === false) : false;
             return acc + ((s !== null && p) ? s : 0);
         }, 0);
 
         // compute accumulated 'For' shares for the currently filtered voted rows
         const filteredAccumulatedFor = (filteredVoted || []).reduce((acc, r) => {
             const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
+            const p = r && votedPredField ? (r[votedPredField] === 0 || r[votedPredField] === '0' || r[votedPredField] === false) : false;
+            return acc + ((s !== null && p) ? s : 0);
+        }, 0);
+
+        // compute accumulated 'Against' shares for the currently filtered voted rows
+        const filteredAccumulatedAgainst = (filteredVoted || []).reduce((acc, r) => {
+            const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
             const p = r && votedPredField ? (r[votedPredField] === 1 || r[votedPredField] === '1' || r[votedPredField] === true) : false;
             return acc + ((s !== null && p) ? s : 0);
         }, 0);
 
-        // compute accumulated 'Unvoted' shares for unvoted rows where prediction_model1 == 0
+        // compute accumulated 'Unvoted' shares - use server total if available, otherwise calculate from client data
         const unvotedPredField = unvotedHeaders.includes('prediction_model1') ? 'prediction_model1' : (unvotedHeaders.find(h => h && h.startsWith && h.startsWith('prediction_model')) || null);
 
-        const totalAccumulatedUnvoted = (currentProposalAccountsState.rawUnvoted || []).reduce((acc, r) => {
-            const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
-            const p = r && unvotedPredField ? (r[unvotedPredField] === 0 || r[unvotedPredField] === '0' || r[unvotedPredField] === false) : false;
-            return acc + ((s !== null && p) ? s : 0);
-        }, 0);
+        const totalAccumulatedUnvoted = currentProposalAccountsState.totals && currentProposalAccountsState.totals.unvoted_shares !== undefined 
+            ? currentProposalAccountsState.totals.unvoted_shares 
+            : (currentProposalAccountsState.rawUnvoted || []).reduce((acc, r) => {
+                const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
+                return acc + (s !== null ? s : 0);
+            }, 0);
 
         const filteredAccumulatedUnvoted = (filteredUnvoted || []).reduce((acc, r) => {
             const s = r && r.shares_summable !== undefined && r.shares_summable !== null ? parseNumberRaw(r.shares_summable) : null;
-            const p = r && unvotedPredField ? (r[unvotedPredField] === 0 || r[unvotedPredField] === '0' || r[unvotedPredField] === false) : false;
-            return acc + ((s !== null && p) ? s : 0);
+            return acc + (s !== null ? s : 0);
         }, 0);
 
         // Track selected unvoted account IDs for proposal-specific view
         if (!window.selectedUnvotedProposalAccountIds) window.selectedUnvotedProposalAccountIds = [];
 
-        const leftHtmlFiltered = buildTableHTMLFiltered(filteredVoted, votedHeaders, 'voted');
-        const rightHtmlFiltered = buildTableHTMLFiltered(filteredUnvoted, unvotedHeaders, 'unvoted');
         if (!contentElem) return;
+        
+        // Create the basic container structure
         contentElem.innerHTML = `
             <div class="row">
                 <div class="col-lg-6 mb-3" data-side="voted">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <h6 class="mb-0"><i class="fas fa-check-circle me-2"></i>Voted Accounts <small class="text-muted">(Total: ${votedPagination.total || voted.length})</small></h6>
-                            <div class="small text-muted">Total Accumulated For Shares: ${formatNumberWithCommas(totalAccumulatedFor)}</div>
-                            <div id="voted_active_filters" class="small text-muted">Active filters: ${formatActiveFiltersSummary(appliedFilters.voted)} • Acc For (applied): ${formatNumberWithCommas(filteredAccumulatedFor)}</div>
-                        </div>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-primary" id="voted_apply_filters">Apply</button>
-                            <button class="btn btn-sm btn-outline-secondary" id="voted_clear_filters">Clear</button>
-                        </div>
-                    </div>
-                    ${leftHtmlFiltered}
+                    <!-- Voted accounts content will be rendered here -->
                 </div>
                 <div class="col-lg-6 mb-3" data-side="unvoted">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <h6 class="mb-0"><i class="fas fa-clock me-2"></i>Unvoted Accounts <small class="text-muted">(Total: ${unvotedPagination.total || unvoted.length})</small></h6>
-                            <div class="small text-muted">Total Accumulated Unvoted Shares: ${formatNumberWithCommas(totalAccumulatedUnvoted)}</div>
-                            <div id="unvoted_active_filters" class="small text-muted">Active filters: ${formatActiveFiltersSummary(appliedFilters.unvoted)} • Acc Unvoted (applied): ${formatNumberWithCommas(filteredAccumulatedUnvoted)}</div>
-                        </div>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-sm btn-primary" id="unvoted_apply_filters">Apply</button>
-                            <button class="btn btn-sm btn-outline-secondary" id="unvoted_clear_filters">Clear</button>
-                        </div>
-                    </div>
-                    ${rightHtmlFiltered}
+                    <!-- Unvoted accounts content will be rendered here -->
                 </div>
             </div>
         `;
-
-        // wire up per-column input events to mark pending changes (do NOT apply automatically)
+        
+        // Render tables using existing logic (no separate functions needed)
+        const leftHtmlFiltered = buildTableHTMLFiltered(filteredVoted, votedHeaders, 'voted');
+        const rightHtmlFiltered = buildTableHTMLFiltered(filteredUnvoted, unvotedHeaders, 'unvoted');
+        
+        // Update the containers with proper content
+        const votedContainer = contentElem.querySelector('[data-side="voted"]');
+        const unvotedContainer = contentElem.querySelector('[data-side="unvoted"]');
+        
+        if (votedContainer) {
+            votedContainer.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h6 class="mb-0"><i class="fas fa-check-circle me-2"></i>Voted Accounts <small class="text-muted">(Total: ${votedPagination.total || voted.length})</small></h6>
+                        <div class="small text-muted">Predicted For Shares (current page): ${formatNumberWithCommas(totalAccumulatedFor)}</div>
+                        <div id="voted_active_filters" class="small text-muted">Active filters: ${formatActiveFiltersSummary(appliedFilters.voted)} • Showing Shares voted For on current page and filter: ${formatNumberWithCommas(filteredAccumulatedFor)} • Showing Shares voted Against on current page and filter: ${formatNumberWithCommas(filteredAccumulatedAgainst)}</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" id="voted_apply_filters">Apply</button>
+                        <button class="btn btn-sm btn-outline-secondary" id="voted_clear_filters">Clear</button>
+                    </div>
+                </div>
+                ${leftHtmlFiltered}
+            `;
+        }
+        
+        if (unvotedContainer) {
+            unvotedContainer.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h6 class="mb-0"><i class="fas fa-clock me-2"></i>Unvoted Accounts <small class="text-muted">(Total: ${unvotedPagination.total || unvoted.length})</small></h6>
+                        <div class="small text-muted">Total Accumulated Unvoted Shares: ${formatNumberWithCommas(totalAccumulatedUnvoted)}</div>
+                        <div id="unvoted_active_filters" class="small text-muted">Active filters: ${formatActiveFiltersSummary(appliedFilters.unvoted)} • Showing shares on current page: ${formatNumberWithCommas(filteredAccumulatedUnvoted)}</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" id="unvoted_apply_filters">Apply</button>
+                        <button class="btn btn-sm btn-outline-secondary" id="unvoted_clear_filters">Clear</button>
+                    </div>
+                </div>
+                ${rightHtmlFiltered}
+            `;
+        }
+        
+        // Wire up per-column input events to mark pending changes (do NOT apply automatically)
         contentElem.querySelectorAll('[data-filter]').forEach(el => {
             // mark pending on input
             el.removeEventListener('input', () => {});
@@ -1667,15 +1689,14 @@ function renderProposalAccountsInline(proposal, data) {
                 }
             });
         });
-        // Don't call updateSelectedUnvotedProposalSharesLegend here - only call it when checkboxes are actually clicked
-        // This ensures the total starts at 0 and only increases when accounts are selected
-        // Update Data Legend for selected unvoted proposal accounts
+        
+        // Setup global functions and legend updater  
         function updateSelectedUnvotedProposalSharesLegend(filteredUnvotedParam) {
             // Only update in accounts view
             if (window._appView !== 'accounts') return;
             if (!contentElem) return;
             let total = 0;
-                                                                                                                                                         contentElem.querySelectorAll('.unvoted-proposal-account-checkbox:checked').forEach(cb => {
+            contentElem.querySelectorAll('.unvoted-proposal-account-checkbox:checked').forEach(cb => {
                 const v = Number(cb.getAttribute('data-shares'));
                 if (Number.isFinite(v)) total += v;
             });
@@ -1733,7 +1754,10 @@ function renderProposalAccountsInline(proposal, data) {
                         currentProposalAccountsState.sortState[side].dir = 'asc';
                     }
                     // clear visual sort indicators
-                    document.querySelectorAll(`[id^="${side}_sort_"]`).forEach(el => el.textContent = '↕');
+                    document.querySelectorAll(`[id^="${side}_sort_"]`).forEach(el => {
+                        el.className = 'fas fa-sort text-muted ms-2';
+                        el.style.fontSize = '14px';
+                    });
                     // update active filters display
                     const activeEl = document.getElementById(`${side}_active_filters`);
                     if (activeEl) activeEl.textContent = `Active filters: ${formatActiveFiltersSummary(appliedFilters[side])}`;
@@ -1742,51 +1766,54 @@ function renderProposalAccountsInline(proposal, data) {
                 };
             }
         });
+
+        // Build and insert separate pagination under each table
+        const effectiveLimit = (currentProposalAccountsState && currentProposalAccountsState.limit) ? currentProposalAccountsState.limit : 50;
+        const vTotal = (votedPagination && (votedPagination.total ?? voted.length)) || voted.length;
+        const uTotal = (unvotedPagination && (unvotedPagination.total ?? unvoted.length)) || unvoted.length;
+        const vTotalPages = (votedPagination && votedPagination.total_pages) ? votedPagination.total_pages : Math.max(1, Math.ceil(vTotal / effectiveLimit));
+        const uTotalPages = (unvotedPagination && unvotedPagination.total_pages) ? unvotedPagination.total_pages : Math.max(1, Math.ceil(uTotal / effectiveLimit));
+        const vCurrent = (votedPagination && votedPagination.current_page) ? votedPagination.current_page : 1;
+        const uCurrent = (unvotedPagination && unvotedPagination.current_page) ? unvotedPagination.current_page : 1;
+
+        // Always show pagination for debugging - remove the condition temporarily
+        let votedPaginationHTML = '';
+        // Always build for voted accounts for debugging
+        votedPaginationHTML += '<nav aria-label="Voted accounts pagination" class="mt-2"><ul class="pagination pagination-sm justify-content-center">';
+        if (vCurrent > 1) votedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${vCurrent - 1});return false;">Prev</a></li>`;
+        const vStart = Math.max(1, vCurrent - 2);
+        const vEnd = Math.min(vTotalPages, vCurrent + 2);
+        for (let i = vStart; i <= vEnd; i++) {
+            votedPaginationHTML += `<li class="page-item ${i === vCurrent ? 'active' : ''}"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${i});return false;">${i}</a></li>`;
+        }
+        if (vCurrent < vTotalPages) votedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${vCurrent + 1});return false;">Next</a></li>`;
+        votedPaginationHTML += `</ul><small class="text-muted">DEBUG: vTotal=${vTotal}, vTotalPages=${vTotalPages}, vCurrent=${vCurrent}, effectiveLimit=${effectiveLimit}</small></nav>`;
+
+        let unvotedPaginationHTML = '';
+        // Always build for unvoted accounts for debugging
+        unvotedPaginationHTML += '<nav aria-label="Unvoted accounts pagination" class="mt-2"><ul class="pagination pagination-sm justify-content-center">';
+        if (uCurrent > 1) unvotedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${uCurrent - 1});return false;">Prev</a></li>`;
+        const uStart = Math.max(1, uCurrent - 2);
+        const uEnd = Math.min(uTotalPages, uCurrent + 2);
+        for (let i = uStart; i <= uEnd; i++) {
+            unvotedPaginationHTML += `<li class="page-item ${i === uCurrent ? 'active' : ''}"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${i});return false;">${i}</a></li>`;
+        }
+        if (uCurrent < uTotalPages) unvotedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${uCurrent + 1});return false;">Next</a></li>`;
+        unvotedPaginationHTML += `</ul><small class="text-muted">DEBUG: uTotal=${uTotal}, uTotalPages=${uTotalPages}, uCurrent=${uCurrent}, effectiveLimit=${effectiveLimit}</small></nav>`;
+
+        const votedPagContainer = contentElem.querySelector('[data-side="voted"]');
+        const unvotedPagContainer = contentElem.querySelector('[data-side="unvoted"]');
+        if (votedPagContainer) votedPagContainer.querySelectorAll('nav[aria-label^="Voted"]').forEach(n => n.remove());
+        if (unvotedPagContainer) unvotedPagContainer.querySelectorAll('nav[aria-label^="Unvoted"]').forEach(n => n.remove());
+        if (votedPagContainer) votedPagContainer.insertAdjacentHTML('beforeend', votedPaginationHTML);
+        if (unvotedPagContainer) unvotedPagContainer.insertAdjacentHTML('beforeend', unvotedPaginationHTML);
     }
 
     // initial render
     renderTables();
-
-    // Build and insert separate pagination under each table
-    const effectiveLimit = (currentProposalAccountsState && currentProposalAccountsState.limit) ? currentProposalAccountsState.limit : 50;
-    const vTotal = (votedPagination && (votedPagination.total ?? voted.length)) || voted.length;
-    const uTotal = (unvotedPagination && (unvotedPagination.total ?? unvoted.length)) || unvoted.length;
-    const vTotalPages = (votedPagination && votedPagination.total_pages) ? votedPagination.total_pages : Math.max(1, Math.ceil(vTotal / effectiveLimit));
-    const uTotalPages = (unvotedPagination && unvotedPagination.total_pages) ? unvotedPagination.total_pages : Math.max(1, Math.ceil(uTotal / effectiveLimit));
-    const vCurrent = (votedPagination && votedPagination.current_page) ? votedPagination.current_page : 1;
-    const uCurrent = (unvotedPagination && unvotedPagination.current_page) ? unvotedPagination.current_page : 1;
-
-    // Always show pagination for debugging - remove the condition temporarily
-    let votedPaginationHTML = '';
-    // Always build for voted accounts for debugging
-    votedPaginationHTML += '<nav aria-label="Voted accounts pagination" class="mt-2"><ul class="pagination pagination-sm justify-content-center">';
-    if (vCurrent > 1) votedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${vCurrent - 1});return false;">Prev</a></li>`;
-    const vStart = Math.max(1, vCurrent - 2);
-    const vEnd = Math.min(vTotalPages, vCurrent + 2);
-    for (let i = vStart; i <= vEnd; i++) {
-        votedPaginationHTML += `<li class="page-item ${i === vCurrent ? 'active' : ''}"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${i});return false;">${i}</a></li>`;
-    }
-    if (vCurrent < vTotalPages) votedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeVotedAccountsPage(${vCurrent + 1});return false;">Next</a></li>`;
-    votedPaginationHTML += `</ul><small class="text-muted">DEBUG: vTotal=${vTotal}, vTotalPages=${vTotalPages}, vCurrent=${vCurrent}, effectiveLimit=${effectiveLimit}</small></nav>`;
-
-    let unvotedPaginationHTML = '';
-    // Always build for unvoted accounts for debugging
-    unvotedPaginationHTML += '<nav aria-label="Unvoted accounts pagination" class="mt-2"><ul class="pagination pagination-sm justify-content-center">';
-    if (uCurrent > 1) unvotedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${uCurrent - 1});return false;">Prev</a></li>`;
-    const uStart = Math.max(1, uCurrent - 2);
-    const uEnd = Math.min(uTotalPages, uCurrent + 2);
-    for (let i = uStart; i <= uEnd; i++) {
-        unvotedPaginationHTML += `<li class="page-item ${i === uCurrent ? 'active' : ''}"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${i});return false;">${i}</a></li>`;
-    }
-    if (uCurrent < uTotalPages) unvotedPaginationHTML += `<li class="page-item"><a class="page-link" href="#" onclick="changeUnvotedAccountsPage(${uCurrent + 1});return false;">Next</a></li>`;
-    unvotedPaginationHTML += `</ul><small class="text-muted">DEBUG: uTotal=${uTotal}, uTotalPages=${uTotalPages}, uCurrent=${uCurrent}, effectiveLimit=${effectiveLimit}</small></nav>`;
-
-    const votedPagContainer = contentElem.querySelector('[data-side="voted"]');
-    const unvotedPagContainer = contentElem.querySelector('[data-side="unvoted"]');
-    if (votedPagContainer) votedPagContainer.querySelectorAll('nav[aria-label^="Voted"]').forEach(n => n.remove());
-    if (unvotedPagContainer) unvotedPagContainer.querySelectorAll('nav[aria-label^="Unvoted"]').forEach(n => n.remove());
-    if (votedPagContainer) votedPagContainer.insertAdjacentHTML('beforeend', votedPaginationHTML);
-    if (unvotedPagContainer) unvotedPagContainer.insertAdjacentHTML('beforeend', unvotedPaginationHTML);
+    
+    // Store render function globally for sorting
+    window.currentRenderFunction = applyFiltersAndRender;
 
     // Populate title and pagination
     const container = document.getElementById('proposalAccountsContainer');
@@ -1806,9 +1833,132 @@ function renderProposalAccountsInline(proposal, data) {
     const proposalsSection = document.getElementById('proposals-section'); if (proposalsSection) proposalsSection.style.display = 'block';
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Setup page size change handler now that the container is visible
+    setupPageSizeHandler();
 }
 
-// Add selected unvoted proposal accounts to Outreach group
+// Helper function to get headers from data array
+function getHeaders(dataArray) {
+    if (!Array.isArray(dataArray) || dataArray.length === 0) return [];
+    
+    // Get all unique keys from the data
+    const allKeys = new Set();
+    dataArray.forEach(item => {
+        if (item && typeof item === 'object') {
+            Object.keys(item).forEach(key => allKeys.add(key));
+        }
+    });
+    
+    return Array.from(allKeys);
+}
+
+// Helper function to apply filters to data
+function applyFilters(dataArray, headers, filters) {
+    if (!Array.isArray(dataArray) || !filters) return dataArray;
+    
+    return dataArray.filter(row => {
+        if (!row) return false;
+        
+        // Account type filter
+        if (filters.accountType && String(row.account_type) !== filters.accountType) return false;
+        
+        // Shares minimum filter
+        if (filters.sharesMin !== undefined && filters.sharesMin !== null) {
+            const val = (row.shares_summable !== undefined && row.shares_summable !== null) ? parseNumberRaw(row.shares_summable) : null;
+            if (val === null || val < filters.sharesMin) return false;
+        }
+        
+        // Rank maximum filter
+        if (filters.rankMax !== undefined && filters.rankMax !== null) {
+            const val = (row.rank_of_shareholding !== undefined && row.rank_of_shareholding !== null) ? parseNumberRaw(row.rank_of_shareholding) : null;
+            if (val === null || val > filters.rankMax) return false;
+        }
+        
+        // Score minimum filter
+        if (filters.scoreMin !== undefined && filters.scoreMin !== null) {
+            const scoreField = headers.find(h => h && h.startsWith && h.startsWith('score_model'));
+            if (scoreField) {
+                const sval = row[scoreField] !== undefined && row[scoreField] !== null ? parseNumberRaw(row[scoreField]) : null;
+                if (sval === null || sval < filters.scoreMin) return false;
+            }
+        }
+        
+        // Target encoded filter
+        if (filters.targetEncodedValue && filters.targetEncodedValue !== '') {
+            const rowVal = row.Target_encoded !== undefined && row.Target_encoded !== null ? String(row.Target_encoded) : '';
+            const filterVal = String(filters.targetEncodedValue);
+            if (rowVal !== filterVal) return false;
+        }
+        
+        // Prediction model filter
+        if (filters.predictionValue) {
+            const predictionField = headers.find(h => h && h.startsWith && h.startsWith('prediction_model'));
+            if (predictionField) {
+                const predVal = String(row[predictionField] || '');
+                if (predVal !== filters.predictionValue) return false;
+            }
+        }
+        
+        return true;
+    });
+}
+
+// Global browser-side sorting function
+function toggleSort(field, sidePrefix) {
+    // Initialize current state if it doesn't exist
+    if (!window.currentProposalAccountsState) {
+        window.currentProposalAccountsState = {};
+    }
+    if (!window.currentProposalAccountsState.sortState) {
+        window.currentProposalAccountsState.sortState = {};
+    }
+    if (!window.currentProposalAccountsState.sortState[sidePrefix]) {
+        window.currentProposalAccountsState.sortState[sidePrefix] = { field: null, dir: 'asc' };
+    }
+
+    const currentSort = window.currentProposalAccountsState.sortState[sidePrefix];
+    
+    // Toggle sort direction if same field, otherwise start with asc
+    if (currentSort.field === field) {
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.dir = 'asc';
+    }
+
+    // Update visual indicators for all sortable columns on this side
+    const sortableFields = ['account_type', 'shares_summable', 'rank_of_shareholding', 'Target_encoded'];
+    // Get all prediction and score model fields from current data
+    const allHeaders = window.currentProposalAccountsState.rawVoted && window.currentProposalAccountsState.rawUnvoted 
+        ? [...Object.keys(window.currentProposalAccountsState.rawVoted[0] || {}), ...Object.keys(window.currentProposalAccountsState.rawUnvoted[0] || {})]
+        : [];
+    const predictionFields = allHeaders.filter(h => h && (h.startsWith('score_model') || h.startsWith('prediction_model')));
+    const allSortableFields = [...sortableFields, ...predictionFields];
+
+    allSortableFields.forEach(h => {
+        const iconEl = document.getElementById(`${sidePrefix}_sort_${h}`);
+        if (iconEl) {
+            if (h === field) {
+                // Update icon to show current sort direction
+                iconEl.className = currentSort.dir === 'asc' 
+                    ? 'fas fa-sort-up text-primary ms-2' 
+                    : 'fas fa-sort-down text-primary ms-2';
+            } else {
+                // Reset to default unsorted icon
+                iconEl.className = 'fas fa-sort text-muted ms-2';
+            }
+            iconEl.style.fontSize = '14px';
+        }
+    });
+
+    // Trigger re-render by calling the stored render function
+    if (window.currentRenderFunction) {
+        window.currentRenderFunction();
+    }
+}
+
+// Add selected unvoted proposal accounts to Outreach group (UNVOTED ACCOUNTS ONLY - voted accounts are not eligible for outreach)
 async function addSelectedUnvotedToOutreach() {
     try {
         if (window._appView !== 'accounts') {
@@ -1994,7 +2144,7 @@ window.showSection = function(section) {
     document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
     if (section === 'dashboard') {
         { const el = document.getElementById('dashboard-section'); if (el) el.style.display = 'block'; }
-        loadDashboard();
+        loadDashboardData();
         loadOutreachCount();
         return;
     }
@@ -2031,5 +2181,114 @@ function testFeedback() {
     } else {
         console.error('dataLegendArea not found for test');
         alert('dataLegendArea element not found!');
+    }
+}
+
+// Pagination functions for proposal accounts
+async function changeVotedAccountsPage(page) {
+    console.log('changeVotedAccountsPage called with page:', page);
+    if (!currentProposalAccountsState.proposalId) {
+        console.error('No proposal ID stored in state');
+        return;
+    }
+    
+    // Store the target page for voted accounts only
+    currentProposalAccountsState.votedPage = page;
+    
+    // Just reload the full view with updated page - simpler approach
+    await viewProposalAccounts(currentProposalAccountsState.proposalId, 1);
+}
+
+async function changeUnvotedAccountsPage(page) {
+    console.log('changeUnvotedAccountsPage called with page:', page);
+    if (!currentProposalAccountsState.proposalId) {
+        console.error('No proposal ID stored in state');
+        return;
+    }
+    
+    // Store the target page for unvoted accounts only
+    currentProposalAccountsState.unvotedPage = page;
+    
+    // Just reload the full view with updated page - simpler approach  
+    await viewProposalAccounts(currentProposalAccountsState.proposalId, 1);
+}
+
+// Load only voted accounts with separate pagination
+async function loadVotedAccounts(proposalId, page = 1) {
+    try {
+        const params = new URLSearchParams();
+        
+        // Set up API parameters for voted accounts only
+        if (currentProposalAccountsState.keyParam === 'proposal_master_skey') {
+            params.append('proposal_master_skey', String(currentProposalAccountsState.keyValue));
+        } else if (currentProposalAccountsState.keyParam === 'director_master_skey') {
+            params.append('director_master_skey', String(currentProposalAccountsState.keyValue));
+        }
+        
+        params.append('voted_page', String(page));
+        params.append('unvoted_page', String(currentProposalAccountsState.unvotedPage || 1));
+        params.append('limit', String(currentProposalAccountsState.limit || 1000));
+        params.append('load_type', 'voted_only');
+        
+        const resp = await fetch(`/api/proposal-accounts?${params.toString()}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        const data = await resp.json();
+        
+        // Update only voted data in state
+        currentProposalAccountsState.rawVoted = Array.isArray(data.voted) ? data.voted : [];
+        if (data.pagination && data.pagination.voted) {
+            currentProposalAccountsState.pagination.voted = data.pagination.voted;
+        }
+        if (data.totals && data.totals.voted_shares !== undefined) {
+            currentProposalAccountsState.totals.voted_shares = data.totals.voted_shares;
+        }
+        
+        // Re-render only the voted accounts table
+        renderVotedAccountsTable();
+        
+    } catch (error) {
+        console.error('Error loading voted accounts:', error);
+        showAlert('Failed to load voted accounts: ' + error.message, 'danger');
+    }
+}
+
+// Load only unvoted accounts with separate pagination
+async function loadUnvotedAccounts(proposalId, page = 1) {
+    try {
+        const params = new URLSearchParams();
+        
+        // Set up API parameters for unvoted accounts only
+        if (currentProposalAccountsState.keyParam === 'proposal_master_skey') {
+            params.append('proposal_master_skey', String(currentProposalAccountsState.keyValue));
+        } else if (currentProposalAccountsState.keyParam === 'director_master_skey') {
+            params.append('director_master_skey', String(currentProposalAccountsState.keyValue));
+        }
+        
+        params.append('voted_page', String(currentProposalAccountsState.votedPage || 1));
+        params.append('unvoted_page', String(page));
+        params.append('limit', String(currentProposalAccountsState.limit || 1000));
+        params.append('load_type', 'unvoted_only');
+        
+        const resp = await fetch(`/api/proposal-accounts?${params.toString()}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        const data = await resp.json();
+        
+        // Update only unvoted data in state
+        currentProposalAccountsState.rawUnvoted = Array.isArray(data.unvoted) ? data.unvoted : [];
+        if (data.pagination && data.pagination.unvoted) {
+            currentProposalAccountsState.pagination.unvoted = data.pagination.unvoted;
+        }
+        if (data.totals && data.totals.unvoted_shares !== undefined) {
+            currentProposalAccountsState.totals.unvoted_shares = data.totals.unvoted_shares;
+        }
+        
+        // Re-render only the unvoted accounts table
+        renderUnvotedAccountsTable();
+        
+    } catch (error) {
+        console.error('Error loading unvoted accounts:', error);
+        showAlert('Failed to load unvoted accounts: ' + error.message, 'danger');
     }
 }

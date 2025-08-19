@@ -184,6 +184,26 @@ body {
     }
 }
 
+/* Enhanced sorting icons */
+th[onclick] {
+    transition: all 0.2s ease-in-out;
+}
+
+th[onclick]:hover {
+    background-color: #e3f2fd !important;
+    cursor: pointer;
+}
+
+th[onclick]:hover i {
+    transform: scale(1.2);
+    color: #1976d2 !important;
+}
+
+th i[id*='_sort_'] {
+    transition: all 0.2s ease-in-out;
+    margin-left: 6px;
+}
+
 .fade-in {
     animation: fadeIn 0.3s ease-in;
 }
@@ -197,4 +217,30 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Sorting icons styling */
+th[onclick] {
+    user-select: none;
+    transition: background-color 0.2s ease;
+}
+
+th[onclick]:hover {
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
+th[onclick] i {
+    transition: color 0.2s ease, transform 0.1s ease;
+}
+
+th[onclick]:hover i {
+    color: #007bff !important;
+    transform: scale(1.1);
+}
+
+/* Active sort state */
+th[onclick] i.fa-sort-up,
+th[onclick] i.fa-sort-down {
+    color: #007bff !important;
+    font-weight: bold;
 }

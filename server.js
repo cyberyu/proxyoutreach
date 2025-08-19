@@ -581,9 +581,14 @@ app.get('/api/proposals/categories', (req, res) => {
 app.get('/api/proposal-accounts', (req, res) => {
   const pm = typeof req.query.proposal_master_skey !== 'undefined' ? parseInt(req.query.proposal_master_skey, 10) : null;
   const dm = typeof req.query.director_master_skey !== 'undefined' ? parseInt(req.query.director_master_skey, 10) : null;
-  const page = parseInt(req.query.page || '1', 10);
+  
+  // Support separate pagination for voted and unvoted accounts
+  const votedPage = parseInt(req.query.voted_page || req.query.page || '1', 10);
+  const unvotedPage = parseInt(req.query.unvoted_page || req.query.page || '1', 10);
   const limit = parseInt(req.query.limit || '1000', 10);
-  const offset = (page - 1) * limit;
+  
+  const votedOffset = (votedPage - 1) * limit;
+  const unvotedOffset = (unvotedPage - 1) * limit;
 
   if ((pm === null || isNaN(pm)) && (dm === null || isNaN(dm))) {
     return res.status(400).json({ error: 'Provide proposal_master_skey or director_master_skey' });
@@ -602,6 +607,14 @@ app.get('/api/proposal-accounts', (req, res) => {
   // Count total for both tables
   const countVotedQ = `SELECT COUNT(*) as total FROM account_voted WHERE ${whereClause}`;
   const countUnvotedQ = `SELECT COUNT(*) as total FROM account_unvoted WHERE ${whereClause}`;
+  
+  // Calculate total shares for both tables
+  const totalVotedSharesQ = `SELECT SUM(CAST(shares_summable AS DECIMAL(20,2))) as total_shares FROM account_voted WHERE ${whereClause} AND shares_summable IS NOT NULL`;
+  const totalUnvotedSharesQ = `SELECT SUM(CAST(shares_summable AS DECIMAL(20,2))) as total_shares FROM account_unvoted WHERE ${whereClause} AND shares_summable IS NOT NULL`;
+  
+  // Calculate For/Against breakdown for voted accounts
+  const votedForSharesQ = `SELECT SUM(CAST(shares_summable AS DECIMAL(20,2))) as for_shares FROM account_voted WHERE ${whereClause} AND shares_summable IS NOT NULL AND (prediction_model2 = 0 OR prediction_model2 = '0' OR prediction_model2 = false)`;
+  const votedAgainstSharesQ = `SELECT SUM(CAST(shares_summable AS DECIMAL(20,2))) as against_shares FROM account_voted WHERE ${whereClause} AND shares_summable IS NOT NULL AND (prediction_model2 = 1 OR prediction_model2 = '1' OR prediction_model2 = true)`;
 
   db.query(countVotedQ, (err, votedCountResult) => {
     if (err) {
@@ -617,17 +630,47 @@ app.get('/api/proposal-accounts', (req, res) => {
       }
       const totalUnvoted = unvotedCountResult[0].total || 0;
 
-      // Fetch paginated rows from both tables
-      const votedQ = `SELECT * FROM account_voted WHERE ${whereClause} ORDER BY id LIMIT ${limit} OFFSET ${offset}`;
-      const unvotedQ = `SELECT * FROM account_unvoted WHERE ${whereClause} ORDER BY id LIMIT ${limit} OFFSET ${offset}`;
-
-      db.query(votedQ, (err, votedRows) => {
+      // Get total shares for both tables
+      db.query(totalVotedSharesQ, (err, votedSharesResult) => {
         if (err) {
-          console.error('Error fetching voted accounts:', err);
+          console.error('Error calculating total voted shares:', err);
           return res.status(500).json({ error: 'Database error' });
         }
+        const totalVotedShares = votedSharesResult[0].total_shares || 0;
 
-        db.query(unvotedQ, (err, unvotedRows) => {
+        db.query(totalUnvotedSharesQ, (err, unvotedSharesResult) => {
+          if (err) {
+            console.error('Error calculating total unvoted shares:', err);
+            return res.status(500).json({ error: 'Database error' });
+          }
+          const totalUnvotedShares = unvotedSharesResult[0].total_shares || 0;
+
+          // Get For/Against breakdown for voted accounts
+          db.query(votedForSharesQ, (err, votedForResult) => {
+            if (err) {
+              console.error('Error calculating voted For shares:', err);
+              return res.status(500).json({ error: 'Database error' });
+            }
+            const totalVotedForShares = votedForResult[0].for_shares || 0;
+
+            db.query(votedAgainstSharesQ, (err, votedAgainstResult) => {
+              if (err) {
+                console.error('Error calculating voted Against shares:', err);
+                return res.status(500).json({ error: 'Database error' });
+              }
+              const totalVotedAgainstShares = votedAgainstResult[0].against_shares || 0;
+
+              // Fetch paginated rows from both tables with separate pagination
+              const votedQ = `SELECT * FROM account_voted WHERE ${whereClause} ORDER BY id LIMIT ${limit} OFFSET ${votedOffset}`;
+              const unvotedQ = `SELECT * FROM account_unvoted WHERE ${whereClause} ORDER BY id LIMIT ${limit} OFFSET ${unvotedOffset}`;
+
+          db.query(votedQ, (err, votedRows) => {
+            if (err) {
+              console.error('Error fetching voted accounts:', err);
+              return res.status(500).json({ error: 'Database error' });
+            }
+
+            db.query(unvotedQ, (err, unvotedRows) => {
           if (err) {
             console.error('Error fetching unvoted accounts:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -669,7 +712,7 @@ app.get('/api/proposal-accounts', (req, res) => {
           outreachRows.map(row => `${row.account_hash_key}_${row.proposal_master_skey}_${row.director_master_skey}`)
         );
 
-        // Add in_outreach flag to each unvoted account
+        // Add in_outreach flag to each unvoted account only (voted accounts should never have outreach functionality)
         const enrichedUnvotedRows = unvotedRows.map(row => {
           const compositeKey = `${row.account_hash_key}_${row.proposal_master_skey}_${row.director_master_skey}`;
           return {
@@ -679,27 +722,41 @@ app.get('/api/proposal-accounts', (req, res) => {
         });
 
         res.json({
-          voted: votedRows,
+          voted: votedRows.map(row => {
+            // Ensure voted accounts never have in_outreach property
+            const { in_outreach, ...cleanRow } = row;
+            return cleanRow;
+          }),
           unvoted: enrichedUnvotedRows,
           pagination: {
-            page: page,
             per_page: limit,
             voted: {
+              current_page: votedPage,
               total: totalVoted,
               total_pages: Math.ceil(totalVoted / limit)
             },
             unvoted: {
+              current_page: unvotedPage,
               total: totalUnvoted,
               total_pages: Math.ceil(totalUnvoted / limit)
             }
+          },
+          totals: {
+            voted_shares: totalVotedShares,
+            unvoted_shares: totalUnvotedShares,
+            voted_for_shares: totalVotedForShares,
+            voted_against_shares: totalVotedAgainstShares
           }
         });
       }
+            });
+          });
+        });
+      });
     });
   });
 });
 
-// Serve the main HTML file
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
