@@ -79,11 +79,10 @@ $mysql_cmd << EOF
 CREATE DATABASE IF NOT EXISTS $db_name;
 USE $db_name;
 
--- Table for unvoted accounts data
+-- Table for unvoted accounts data (optimized schema)
 CREATE TABLE IF NOT EXISTS account_unvoted (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    row_index INT,
-    unnamed_col VARCHAR(50),
+    account_hash_key VARCHAR(255) NOT NULL,
     proposal_master_skey BIGINT,
     director_master_skey BIGINT,
     account_type VARCHAR(10),
@@ -91,7 +90,9 @@ CREATE TABLE IF NOT EXISTS account_unvoted (
     rank_of_shareholding BIGINT,
     score_model1 DECIMAL(20,15),
     prediction_model1 TINYINT,
+    Target_encoded INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_account_hash (account_hash_key),
     INDEX idx_proposal_skey (proposal_master_skey),
     INDEX idx_director_skey (director_master_skey),
     INDEX idx_account_type (account_type),
@@ -99,11 +100,10 @@ CREATE TABLE IF NOT EXISTS account_unvoted (
     INDEX idx_rank (rank_of_shareholding)
 );
 
--- Table for voted accounts data  
+-- Table for voted accounts data (optimized schema)
 CREATE TABLE IF NOT EXISTS account_voted (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    row_index INT,
-    unnamed_col VARCHAR(50),
+    account_hash_key VARCHAR(255) NOT NULL,
     proposal_master_skey BIGINT,
     director_master_skey BIGINT,
     account_type VARCHAR(10),
@@ -111,7 +111,9 @@ CREATE TABLE IF NOT EXISTS account_voted (
     rank_of_shareholding BIGINT,
     score_model2 DECIMAL(20,15),
     prediction_model2 TINYINT,
+    Target_encoded INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_account_hash (account_hash_key),
     INDEX idx_proposal_skey (proposal_master_skey),
     INDEX idx_director_skey (director_master_skey),
     INDEX idx_account_type (account_type),

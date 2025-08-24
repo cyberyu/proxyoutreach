@@ -1,9 +1,145 @@
 // Debug area update function (moved to top level for global access)
 // Debug legend function removed
 // Global variables
-let accounts = [];
+// FIXED EVENT TARGET BUG - Version 2.0 - 2025-08-23 16:00
 let outreachLogs = [];
-let currentEditingAccount = null;
+
+// Global fetch wrapper to include credentials
+const fetchWithCredentials = (url, options = {}) => {
+    return fetch(url, {
+        credentials: 'include',
+        ...options
+    });
+};
+
+// --- Separate Data Format Validation Dialogs ---
+function showValidationDialog(type) {
+    // Hide all dialogs first
+    var proposal = document.getElementById('validationProposalDialog');
+    var unvoted = document.getElementById('validationUnvotedDialog');
+    var voted = document.getElementById('validationVotedDialog');
+    if (proposal) proposal.style.display = 'none';
+    if (unvoted) unvoted.style.display = 'none';
+    if (voted) voted.style.display = 'none';
+    if (type === 'proposal' && proposal) {
+        proposal.style.display = 'block';
+        document.getElementById('validationProposalResults').innerHTML = '';
+        document.getElementById('validationProposalFileInput').value = '';
+    } else if (type === 'unvoted' && unvoted) {
+        unvoted.style.display = 'block';
+        document.getElementById('validationUnvotedResults').innerHTML = '';
+        document.getElementById('validationUnvotedFileInput').value = '';
+    } else if (type === 'voted' && voted) {
+        voted.style.display = 'block';
+        document.getElementById('validationVotedResults').innerHTML = '';
+        document.getElementById('validationVotedFileInput').value = '';
+    }
+}
+function hideValidationDialog() {
+    var proposal = document.getElementById('validationProposalDialog');
+    var unvoted = document.getElementById('validationUnvotedDialog');
+    var voted = document.getElementById('validationVotedDialog');
+    if (proposal) proposal.style.display = 'none';
+    if (unvoted) unvoted.style.display = 'none';
+    if (voted) voted.style.display = 'none';
+}
+
+// Attach validation button listeners after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    var btnProposal = document.getElementById('btnValidateProposal');
+    var btnUnvoted = document.getElementById('btnValidateUnvoted');
+    var btnVoted = document.getElementById('btnValidateVoted');
+    if (btnProposal) btnProposal.addEventListener('click', function() { showValidationDialog('proposal'); });
+    if (btnUnvoted) btnUnvoted.addEventListener('click', function() { showValidationDialog('unvoted'); });
+    if (btnVoted) btnVoted.addEventListener('click', function() { showValidationDialog('voted'); });
+});
+async function runProposalValidation() {
+    const fileInput = document.getElementById('validationProposalFileInput');
+    const resultsDiv = document.getElementById('validationProposalResults');
+    resultsDiv.innerHTML = '';
+    if (!fileInput.files || !fileInput.files[0]) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning">Please select a file to validate.</div>';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    resultsDiv.innerHTML = '<div class="text-info">Validating, please wait...</div>';
+    try {
+        const resp = await fetch(`/api/validate-import?type=proposal`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+        if (data.valid) {
+            resultsDiv.innerHTML = '<div class="alert alert-success">✅ Format is valid and can be ingested into MySQL.</div>';
+        } else {
+            let html = '<div class="alert alert-danger"><b>❌ Format errors detected:</b><ul>';
+            (data.errors || []).forEach(e => { html += `<li>${escapeHtml(e)}</li>`; });
+            html += '</ul></div>';
+            resultsDiv.innerHTML = html;
+        }
+    } catch (e) {
+        resultsDiv.innerHTML = `<div class="alert alert-danger">Validation failed: ${escapeHtml(e.message)}</div>`;
+    }
+}
+async function runUnvotedValidation() {
+    const fileInput = document.getElementById('validationUnvotedFileInput');
+    const resultsDiv = document.getElementById('validationUnvotedResults');
+    resultsDiv.innerHTML = '';
+    if (!fileInput.files || !fileInput.files[0]) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning">Please select a file to validate.</div>';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    resultsDiv.innerHTML = '<div class="text-info">Validating, please wait...</div>';
+    try {
+        const resp = await fetch(`/api/validate-import?type=unvoted`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+        if (data.valid) {
+            resultsDiv.innerHTML = '<div class="alert alert-success">✅ Format is valid and can be ingested into MySQL.</div>';
+        } else {
+            let html = '<div class="alert alert-danger"><b>❌ Format errors detected:</b><ul>';
+            (data.errors || []).forEach(e => { html += `<li>${escapeHtml(e)}</li>`; });
+            html += '</ul></div>';
+            resultsDiv.innerHTML = html;
+        }
+    } catch (e) {
+        resultsDiv.innerHTML = `<div class="alert alert-danger">Validation failed: ${escapeHtml(e.message)}</div>`;
+    }
+}
+async function runVotedValidation() {
+    const fileInput = document.getElementById('validationVotedFileInput');
+    const resultsDiv = document.getElementById('validationVotedResults');
+    resultsDiv.innerHTML = '';
+    if (!fileInput.files || !fileInput.files[0]) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning">Please select a file to validate.</div>';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    resultsDiv.innerHTML = '<div class="text-info">Validating, please wait...</div>';
+    try {
+        const resp = await fetch(`/api/validate-import?type=voted`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+        if (data.valid) {
+            resultsDiv.innerHTML = '<div class="alert alert-success">✅ Format is valid and can be ingested into MySQL.</div>';
+        } else {
+            let html = '<div class="alert alert-danger"><b>❌ Format errors detected:</b><ul>';
+            (data.errors || []).forEach(e => { html += `<li>${escapeHtml(e)}</li>`; });
+            html += '</ul></div>';
+            resultsDiv.innerHTML = html;
+        }
+    } catch (e) {
+        resultsDiv.innerHTML = `<div class="alert alert-danger">Validation failed: ${escapeHtml(e.message)}</div>`;
+    }
+}
 
 // API URL base
 const API_BASE = '';
@@ -44,13 +180,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(error => console.error('Backup approach failed:', error));
         }, 2000);
         
-        // Try to load accounts and outreach logs if functions exist
-        if (typeof loadAccounts === 'function') {
-            loadAccounts();
-        } else {
-            console.log('loadAccounts function not found, skipping...');
-        }
-        
+        // Try to load outreach logs if function exists
         if (typeof loadOutreachLogs === 'function') {
             loadOutreachLogs();
         } else {
@@ -77,7 +207,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Navigation functions
-function showSection(sectionName) {
+function showSection(sectionName, event = null) {
+    console.log('=== showSection called with:', sectionName, 'event:', event, '===');
+    
     // Hide all sections
     document.querySelectorAll('.content-section').forEach(section => {
         section.style.display = 'none';
@@ -90,7 +222,10 @@ function showSection(sectionName) {
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.remove('active');
     });
-    event.target.classList.add('active');
+    // Only add 'active' if event and event.target exist
+    if (event && event.target && typeof event.target.classList !== 'undefined') {
+        event.target.classList.add('active');
+    }
     
     // Load section-specific data
     switch(sectionName) {
@@ -103,18 +238,22 @@ function showSection(sectionName) {
         case 'accounts':
             // Reset any previously selected unvoted account selections on entering Accounts view
             try {
-                if (Array.isArray(selectedUnvotedAccountIds)) selectedUnvotedAccountIds.length = 0; else selectedUnvotedAccountIds = [];
-            } catch (e) { /* noop */ }
-            try {
                 if (typeof window !== 'undefined') window.selectedUnvotedProposalAccountIds = [];
             } catch (e) { /* noop */ }
-            loadAccounts();
             break;
         case 'outreach':
             loadOutreachLogs();
             break;
         case 'outreach-accounts':
             loadOutreachAccounts();
+            break;
+        case 'admin':
+            if (!isAdminAuthenticated) {
+                showAlert('Admin authentication required', 'warning');
+                showSection('dashboard', null);
+                return;
+            }
+            // Admin section loaded, no specific data loading needed
             break;
     }
 }
@@ -124,7 +263,7 @@ async function loadDashboardData() {
     console.log('=== loadDashboardData: Starting... ===');
     try {
         console.log('loadDashboardData: Making fetch request...');
-        const response = await fetch(`${API_BASE}/api/dashboard`);
+        const response = await fetchWithCredentials(`${API_BASE}/api/dashboard`);
         console.log('loadDashboardData: Response received', response.status, response.ok);
         
         if (!response.ok) {
@@ -174,6 +313,7 @@ async function loadDashboardData() {
 let proposals = [];
 let currentProposalsPage = 1;
 let totalProposalsPages = 1;
+let proposalsSortState = { field: null, dir: 'asc' };
 
 function showProposalsSection() {
     console.log('showProposalsSection called');
@@ -240,13 +380,16 @@ async function loadProposalsTable() {
         
         console.log('Fetching proposals from:', url);
         
-        const response = await fetch(url);
+        const response = await fetchWithCredentials(url);
         const data = await response.json();
         
         console.log('Proposals response:', data);
         
         proposals = data.proposals;
         totalProposalsPages = data.pagination.total_pages;
+        
+        // Apply current sorting if any
+        applySortingToProposals();
         
         renderProposalsTable();
         renderProposalsPagination(data.pagination);
@@ -268,6 +411,22 @@ function renderProposalsTable() {
         console.error('proposalsTableBody element not found!');
         return;
     }
+    
+    // Initialize sort icons
+    const sortableFields = ['id', 'issuer_name', 'category'];
+    sortableFields.forEach(f => {
+        const iconEl = document.getElementById(`proposals_sort_${f}`);
+        if (iconEl) {
+            if (proposalsSortState.field === f) {
+                iconEl.className = proposalsSortState.dir === 'asc' 
+                    ? 'fas fa-sort-up text-primary ms-2' 
+                    : 'fas fa-sort-down text-primary ms-2';
+            } else {
+                iconEl.className = 'fas fa-sort text-muted ms-2';
+            }
+            iconEl.style.fontSize = '14px';
+        }
+    });
     
     if (proposals.length === 0) {
         tbody.innerHTML = '<tr><td colspan="10" class="text-center">No proposals found</td></tr>';
@@ -370,6 +529,68 @@ function changeProposalsPage(page) {
     loadProposalsTable();
 }
 
+// Sorting function for proposals table
+function toggleProposalSort(field) {
+    // Toggle sort direction if same field, otherwise start with asc
+    if (proposalsSortState.field === field) {
+        proposalsSortState.dir = proposalsSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        proposalsSortState.field = field;
+        proposalsSortState.dir = 'asc';
+    }
+
+    // Update visual indicators for all sortable columns
+    const sortableFields = ['id', 'issuer_name', 'category'];
+    sortableFields.forEach(f => {
+        const iconEl = document.getElementById(`proposals_sort_${f}`);
+        if (iconEl) {
+            if (f === field) {
+                // Update icon to show current sort direction
+                iconEl.className = proposalsSortState.dir === 'asc' 
+                    ? 'fas fa-sort-up text-primary ms-2' 
+                    : 'fas fa-sort-down text-primary ms-2';
+            } else {
+                // Reset to default unsorted icon
+                iconEl.className = 'fas fa-sort text-muted ms-2';
+            }
+            iconEl.style.fontSize = '14px';
+        }
+    });
+
+    // Apply sorting and re-render
+    applySortingToProposals();
+    renderProposalsTable();
+}
+
+// Apply sorting to the proposals array
+function applySortingToProposals() {
+    if (!proposalsSortState.field || !proposals.length) return;
+
+    proposals.sort((a, b) => {
+        let valueA = a[proposalsSortState.field];
+        let valueB = b[proposalsSortState.field];
+
+        // Handle null/undefined values
+        if (valueA === null || valueA === undefined) valueA = '';
+        if (valueB === null || valueB === undefined) valueB = '';
+
+        // Convert to string for comparison (except for ID which should be numeric)
+        if (proposalsSortState.field === 'id') {
+            valueA = Number(valueA) || 0;
+            valueB = Number(valueB) || 0;
+        } else {
+            valueA = String(valueA).toLowerCase();
+            valueB = String(valueB).toLowerCase();
+        }
+
+        let comparison = 0;
+        if (valueA < valueB) comparison = -1;
+        else if (valueA > valueB) comparison = 1;
+
+        return proposalsSortState.dir === 'asc' ? comparison : -comparison;
+    });
+}
+
 function viewProposalDetails(id) {
     const proposal = proposals.find(p => p.id === id);
     if (!proposal) return;
@@ -438,104 +659,6 @@ function viewProposalDetails(id) {
 }
 
 // Account management functions
-async function loadAccounts() {
-    try {
-        const votingStatus = document.getElementById('votingStatusFilter')?.value || '';
-        const outreachStatus = document.getElementById('outreachStatusFilter')?.value || '';
-        
-        let url = `${API_BASE}/api/accounts`;
-        const params = new URLSearchParams();
-        
-        if (votingStatus) params.append('voting_status', votingStatus);
-        if (outreachStatus) params.append('status', outreachStatus);
-        
-        if (params.toString()) {
-            url += '?' + params.toString();
-        }
-        
-        const response = await fetch(url);
-        accounts = await response.json();
-        
-        renderAccountsTable();
-        
-    } catch (error) {
-        console.error('Error loading accounts:', error);
-        showAlert('Error loading accounts', 'danger');
-    }
-}
-
-// Track selected unvoted account IDs
-let selectedUnvotedAccountIds = [];
-
-function renderAccountsTable() {
-    const tbody = document.getElementById('accountsTableBody');
-    if (accounts.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="8" class="text-center py-4">
-                    <div class="empty-state">
-                        <i class="fas fa-users"></i>
-                        <p>No accounts found</p>
-                    </div>
-                </td>
-            </tr>
-        `;
-        return;
-    }
-
-    tbody.innerHTML = accounts.map(account => {
-        const isUnvoted = account.voting_status === 'unvoted';
-        const checked = isUnvoted && (selectedUnvotedAccountIds || []).map(String).includes(String(account.account_id)) ? 'checked' : '';
-        // Normalize shares to a number for embedding in the checkbox
-        const rawShares = account.shares_summable;
-        let sharesVal = (rawShares === null || rawShares === undefined || rawShares === '') ? 0 : (typeof rawShares === 'string' ? rawShares.replace(/,/g, '').trim() : rawShares);
-        const sharesNum = Number.isFinite(Number(sharesVal)) ? Number(sharesVal) : 0;
-        return `
-        <tr>
-            <td>${isUnvoted ? `<input type="checkbox" class="unvoted-account-checkbox" id="unvoted-account-checkbox-${account.account_id}" data-account-id="${account.account_id}" data-shares="${sharesNum}" ${checked}>` : ''}</td>
-            <td>${account.account_id || ''}</td>
-            <td>${account.account_name || ''}</td>
-            <td>
-                <span class="badge status-badge voting-status-${account.voting_status}">
-                    ${account.voting_status || 'unknown'}
-                </span>
-            </td>
-            <td class="contact-info">${account.contact_email || '-'}</td>
-            <td>
-                <span class="badge status-badge outreach-status-${account.outreach_status}">
-                    ${account.outreach_status || 'pending'}
-                </span>
-            </td>
-            <td>${account.last_contact_date ? formatDate(account.last_contact_date) : '-'}</td>
-            <td>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary" onclick="editAccount('${account.account_id}')" title="Edit">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn btn-outline-danger" onclick="deleteAccount('${account.account_id}')" title="Delete">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>
-        `;
-    }).join('');
-
-    // Add event listeners for checkboxes
-    document.querySelectorAll('.unvoted-account-checkbox').forEach(cb => {
-        cb.addEventListener('change', function() {
-            const accountId = String(this.getAttribute('data-account-id'));
-            if (this.checked) {
-                if (!(selectedUnvotedAccountIds || []).map(String).includes(accountId)) selectedUnvotedAccountIds.push(accountId);
-            } else {
-                selectedUnvotedAccountIds = (selectedUnvotedAccountIds || []).filter(id => String(id) !== accountId);
-            }
-            updateSelectedUnvotedSharesLegend();
-        });
-    });
-    updateSelectedUnvotedSharesLegend();
-}
-
 function updateSelectedUnvotedSharesLegend() {
     // Sum shares only from the currently checked unvoted account checkboxes in the DOM
     let totalShares = 0;
@@ -547,151 +670,6 @@ function updateSelectedUnvotedSharesLegend() {
     const legend = document.getElementById('dataLegendSelectedShares');
     if (legend) {
         legend.textContent = `Total Shares from Selected Unvoted Accounts: ${totalShares.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
-    }
-}
-
-function filterAccounts() {
-    loadAccounts();
-}
-
-function searchAccounts() {
-    const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-    
-    if (!searchTerm) {
-        renderAccountsTable();
-        return;
-    }
-    
-    const filteredAccounts = accounts.filter(account => 
-        (account.account_id && account.account_id.toLowerCase().includes(searchTerm)) ||
-        (account.account_name && account.account_name.toLowerCase().includes(searchTerm)) ||
-        (account.contact_email && account.contact_email.toLowerCase().includes(searchTerm))
-    );
-    
-    const originalAccounts = accounts;
-    accounts = filteredAccounts;
-    renderAccountsTable();
-    accounts = originalAccounts;
-}
-
-function showAddAccountModal() {
-    currentEditingAccount = null;
-    document.getElementById('accountModalTitle').textContent = 'Add Account';
-    document.getElementById('accountForm').reset();
-    document.getElementById('accountId').value = '';
-    document.getElementById('accountIdInput').disabled = false;
-    
-    const modal = new bootstrap.Modal(document.getElementById('accountModal'));
-    modal.show();
-}
-
-async function editAccount(accountId) {
-    try {
-        const response = await fetch(`${API_BASE}/api/accounts/${accountId}`);
-        const account = await response.json();
-        
-        currentEditingAccount = accountId;
-        document.getElementById('accountModalTitle').textContent = 'Edit Account';
-        
-        // Populate form
-        document.getElementById('accountId').value = account.account_id;
-        document.getElementById('accountIdInput').value = account.account_id;
-        document.getElementById('accountIdInput').disabled = true;
-        document.getElementById('accountNameInput').value = account.account_name || '';
-        document.getElementById('votingStatusInput').value = account.voting_status || 'unvoted';
-        document.getElementById('contactEmailInput').value = account.contact_email || '';
-        document.getElementById('contactPhoneInput').value = account.contact_phone || '';
-        document.getElementById('outreachStatusInput').value = account.outreach_status || 'pending';
-        document.getElementById('lastContactDateInput').value = account.last_contact_date ? account.last_contact_date.split('T')[0] : '';
-        document.getElementById('notesInput').value = account.notes || '';
-        
-        const modal = new bootstrap.Modal(document.getElementById('accountModal'));
-        modal.show();
-        
-    } catch (error) {
-        console.error('Error loading account:', error);
-        showAlert('Error loading account details', 'danger');
-    }
-}
-
-async function saveAccount() {
-    const accountData = {
-        account_id: document.getElementById('accountIdInput').value,
-        account_name: document.getElementById('accountNameInput').value,
-        voting_status: document.getElementById('votingStatusInput').value,
-        contact_email: document.getElementById('contactEmailInput').value,
-        contact_phone: document.getElementById('contactPhoneInput').value,
-        outreach_status: document.getElementById('outreachStatusInput').value,
-        last_contact_date: document.getElementById('lastContactDateInput').value || null,
-        notes: document.getElementById('notesInput').value
-    };
-    
-    try {
-        let response;
-        if (currentEditingAccount) {
-            // Update existing account
-            response = await fetch(`${API_BASE}/api/accounts/${currentEditingAccount}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(accountData)
-            });
-        } else {
-            // Create new account
-            response = await fetch(`${API_BASE}/api/accounts`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(accountData)
-            });
-        }
-        
-        if (response.ok) {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('accountModal'));
-            modal.hide();
-            
-            showAlert(
-                currentEditingAccount ? 'Account updated successfully' : 'Account created successfully',
-                'success'
-            );
-            
-            loadAccounts();
-            loadDashboardData();
-        } else {
-            const error = await response.json();
-            showAlert('Error saving account: ' + error.error, 'danger');
-        }
-        
-    } catch (error) {
-        console.error('Error saving account:', error);
-        showAlert('Error saving account', 'danger');
-    }
-}
-
-async function deleteAccount(accountId) {
-    if (!confirm('Are you sure you want to delete this account?')) {
-        return;
-    }
-    
-    try {
-        const response = await fetch(`${API_BASE}/api/accounts/${accountId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            showAlert('Account deleted successfully', 'success');
-            loadAccounts();
-            loadDashboardData();
-        } else {
-            const error = await response.json();
-            showAlert('Error deleting account: ' + error.error, 'danger');
-        }
-        
-    } catch (error) {
-        console.error('Error deleting account:', error);
-        showAlert('Error deleting account', 'danger');
     }
 }
 
@@ -784,7 +762,6 @@ async function saveOutreachLog() {
             
             showAlert('Outreach log created successfully', 'success');
             loadOutreachLogs();
-            loadAccounts(); // Refresh accounts to update last contact date
             
         } else {
             const error = await response.json();
@@ -825,7 +802,6 @@ function setupImportForm() {
             
             if (response.ok) {
                 showImportResults(result);
-                loadAccounts();
                 loadDashboardData();
                 fileInput.value = '';
             } else {
@@ -839,6 +815,50 @@ function setupImportForm() {
             showImportProgress(false);
         }
     });
+}
+
+// Download example format function
+async function downloadExampleFormat(type) {
+    try {
+        const response = await fetch(`${API_BASE}/api/download-example/${type}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // Set appropriate filename based on type
+        let filename;
+        switch(type) {
+            case 'proposal':
+                filename = 'example_proposal_data.xlsx';
+                break;
+            case 'unvoted':
+                filename = 'example_unvoted_accounts.csv';
+                break;
+            case 'voted':
+                filename = 'example_voted_accounts.csv';
+                break;
+            default:
+                filename = `example_${type}_data.csv`;
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showAlert(`Downloaded ${filename} successfully`, 'success');
+        
+    } catch (error) {
+        console.error('Error downloading example format:', error);
+        showAlert('Error downloading example format: ' + error.message, 'danger');
+    }
 }
 
 function showImportProgress(show) {
@@ -1539,12 +1559,12 @@ function renderProposalAccountsInline(proposal, data) {
         const predictionField = headers.find(h => h && h.startsWith && h.startsWith('prediction_model')) || null;
         const predictionEl = predictionField ? contentElem.querySelector(`[data-side="${side}"] [data-filter="${predictionField}"]`) : null;
 
-        const accountType = accTypeEl?.value || '';
-        const sharesMin = parseNumberRaw(sharesEl?.value);
-        const rankMax = parseNumberRaw(rankEl?.value);
-        const scoreMin = scoreEl ? parseNumberRaw(scoreEl?.value) : null;
-        const targetEncodedValue = targetEncodedEl?.value || '';
-        const predictionValue = predictionEl?.value || '';
+        const accountType = accTypeEl ? accTypeEl.value : '';
+        const sharesMin = parseNumberRaw(sharesEl ? sharesEl.value : null);
+        const rankMax = parseNumberRaw(rankEl ? rankEl.value : null);
+        const scoreMin = scoreEl ? parseNumberRaw(scoreEl.value) : null;
+        const targetEncodedValue = targetEncodedEl ? targetEncodedEl.value : '';
+        const predictionValue = predictionEl ? predictionEl.value : '';
 
         return { accountType, sharesMin, rankMax, scoreMin, targetEncodedValue, predictionValue };
     }
@@ -1664,7 +1684,7 @@ function renderProposalAccountsInline(proposal, data) {
             // mark pending on input
             el.removeEventListener('input', () => {});
             el.addEventListener('input', function() {
-                const side = el.closest('[data-side]')?.getAttribute('data-side');
+                const side = el.closest('[data-side]') ? el.closest('[data-side]').getAttribute('data-side') : null;
                 if (side) {
                     pendingChanged[side] = true;
                     el.classList.add('pending-filter');
@@ -1980,8 +2000,8 @@ async function addSelectedUnvotedToOutreach() {
             showAlert('Selected rows have no usable account identifiers.', 'warning');
             return;
         }
-        const keyParam = currentProposalAccountsState?.keyParam;
-        const keyValue = currentProposalAccountsState?.keyValue;
+        const keyParam = currentProposalAccountsState ? currentProposalAccountsState.keyParam : null;
+        const keyValue = currentProposalAccountsState ? currentProposalAccountsState.keyValue : null;
         if (!keyParam || keyValue === undefined || keyValue === null || keyValue === '') {
             showAlert('Missing key context; cannot add to outreach.', 'danger');
             return;
@@ -2292,3 +2312,657 @@ async function loadUnvotedAccounts(proposalId, page = 1) {
         showAlert('Failed to load unvoted accounts: ' + error.message, 'danger');
     }
 }
+
+// ========== ADMIN FUNCTIONS ==========
+
+// Admin authentication state
+let isAdminAuthenticated = false;
+const ADMIN_PASSWORD = '12345678';
+
+// Prompt for admin login
+function promptAdminLogin() {
+    // Reset form
+    document.getElementById('adminPassword').value = '';
+    document.getElementById('adminLoginError').style.display = 'none';
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
+    modal.show();
+    
+    // Focus on password field
+    setTimeout(() => {
+        document.getElementById('adminPassword').focus();
+    }, 500);
+}
+
+// Verify admin password
+async function verifyAdminPassword() {
+    const password = document.getElementById('adminPassword').value;
+    const errorDiv = document.getElementById('adminLoginError');
+    
+    try {
+        const response = await fetchWithCredentials('/api/admin/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            isAdminAuthenticated = true;
+            
+            // Hide modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('adminLoginModal'));
+            modal.hide();
+            
+            // Show admin section
+            showSection('admin', null);
+            
+            // Update nav link to active
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            document.querySelector('[onclick="promptAdminLogin()"]').classList.add('active');
+            
+            // Show success message
+            showAlert('Admin access granted', 'success');
+            
+        } else {
+            // Show error
+            errorDiv.textContent = result.message || 'Invalid password. Please try again.';
+            errorDiv.style.display = 'block';
+            document.getElementById('adminPassword').value = '';
+            document.getElementById('adminPassword').focus();
+        }
+    } catch (error) {
+        console.error('Admin login error:', error);
+        errorDiv.textContent = 'Login failed. Please try again.';
+        errorDiv.style.display = 'block';
+        document.getElementById('adminPassword').value = '';
+        document.getElementById('adminPassword').focus();
+    }
+}
+
+// Handle Enter key in password field
+document.addEventListener('DOMContentLoaded', function() {
+    const passwordField = document.getElementById('adminPassword');
+    if (passwordField) {
+        passwordField.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                verifyAdminPassword();
+            }
+        });
+    }
+});
+
+// Logout from admin (optional - can be called manually)
+function adminLogout() {
+    isAdminAuthenticated = false;
+    showSection('dashboard', null);
+    showAlert('Logged out from admin panel', 'info');
+}
+
+// Show database statistics
+async function showDatabaseStats() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/database-stats');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const stats = await response.json();
+        const resultDiv = document.getElementById('databaseStatsResult');
+        
+        resultDiv.innerHTML = `
+            <div class="card mt-2">
+                <div class="card-body">
+                    <h6>Database Statistics</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Voted Accounts:</strong> ${stats.voted_count ? stats.voted_count.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Unvoted Accounts:</strong> ${stats.unvoted_count ? stats.unvoted_count.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Total Accounts:</strong> ${stats.total_accounts ? stats.total_accounts.toLocaleString() : 'N/A'}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Outreach Logs:</strong> ${stats.outreach_logs ? stats.outreach_logs.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Proposals:</strong> ${stats.proposals ? stats.proposals.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Database Size:</strong> ${stats.database_size || 'N/A'}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        document.getElementById('databaseStatsResult').innerHTML = 
+            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+// Export database
+async function exportDatabase() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    if (!confirm('This will create a database backup. Continue?')) return;
+    
+    try {
+        const response = await fetch('/api/admin/export-database', { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        showAlert('Database export started. Check server logs for progress.', 'success');
+        
+        document.getElementById('databaseStatsResult').innerHTML = 
+            `<div class="alert alert-success">Export initiated: ${result.message}</div>`;
+    } catch (error) {
+        document.getElementById('databaseStatsResult').innerHTML = 
+            `<div class="alert alert-danger">Export failed: ${error.message}</div>`;
+    }
+}
+
+// Clear database (with confirmation)
+async function clearDatabase() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    const confirmText = 'DELETE ALL DATA';
+    const userInput = prompt(`This will DELETE ALL DATA from the database. Type "${confirmText}" to confirm:`);
+    
+    if (userInput !== confirmText) {
+        showAlert('Database clear cancelled.', 'info');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/clear-database', { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        showAlert('Database cleared successfully.', 'success');
+        
+        document.getElementById('databaseStatsResult').innerHTML = 
+            `<div class="alert alert-success">Database cleared: ${result.message}</div>`;
+            
+        // Refresh dashboard if visible
+        if (document.getElementById('dashboard-section').style.display !== 'none') {
+            loadDashboard();
+        }
+    } catch (error) {
+        document.getElementById('databaseStatsResult').innerHTML = 
+            `<div class="alert alert-danger">Clear failed: ${error.message}</div>`;
+    }
+}
+
+// Show issuer list with selection capability
+async function showIssuerList() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithCredentials('/api/admin/issuer-list');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const resultDiv = document.getElementById('systemInfoResult');
+        
+        if (data.issuers && data.issuers.length > 0) {
+            resultDiv.innerHTML = `
+                <div class="card mt-2">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6>Issuer Selection & Filter</h6>
+                            <div>
+                                <button class="btn btn-success btn-sm me-2" onclick="selectAllIssuers()">
+                                    <i class="fas fa-check-double me-1"></i>Select All
+                                </button>
+                                <button class="btn btn-warning btn-sm me-2" onclick="clearAllIssuers()">
+                                    <i class="fas fa-times me-1"></i>Clear All
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="applyIssuerFilter()">
+                                    <i class="fas fa-filter me-1"></i>Apply Filter
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <small>
+                                <i class="fas fa-info-circle me-1"></i>
+                                Selected issuers: <strong id="selectedCount">${data.selectedCount}</strong> / ${data.totalIssuers}
+                                <br>Only data from selected issuers will be shown across all sections.
+                            </small>
+                        </div>
+                        
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm table-striped">
+                                <thead class="table-dark sticky-top">
+                                    <tr>
+                                        <th style="width: 40px;">
+                                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleAllIssuers(this)">
+                                        </th>
+                                        <th>Issuer Name</th>
+                                        <th>Proposals</th>
+                                        <th>Directors</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${data.issuers.map((issuer, index) => `
+                                        <tr>
+                                            <td>
+                                                <input type="checkbox" 
+                                                       class="issuer-checkbox" 
+                                                       value="${issuer.name}" 
+                                                       ${issuer.selected ? 'checked' : ''}
+                                                       onchange="updateSelectedCount()">
+                                            </td>
+                                            <td>${issuer.name}</td>
+                                            <td>${issuer.proposal_count ? issuer.proposal_count.toLocaleString() : '0'}</td>
+                                            <td>${issuer.director_count ? issuer.director_count.toLocaleString() : '0'}</td>
+                                            <td><span class="badge bg-success">active</span></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Update the select all checkbox state
+            updateSelectAllCheckbox();
+            
+        } else {
+            resultDiv.innerHTML = `
+                <div class="card mt-2">
+                    <div class="card-body">
+                        <h6>Issuer List</h6>
+                        <div class="alert alert-info">No issuers found in the database.</div>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('systemInfoResult').innerHTML = 
+            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+// Select all issuers
+function selectAllIssuers() {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    checkboxes.forEach(cb => cb.checked = true);
+    updateSelectedCount();
+    updateSelectAllCheckbox();
+}
+
+// Clear all issuer selections
+function clearAllIssuers() {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+    updateSelectedCount();
+    updateSelectAllCheckbox();
+}
+
+// Toggle all issuers from header checkbox
+function toggleAllIssuers(selectAllCheckbox) {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+    updateSelectedCount();
+}
+
+// Update selected count display
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox:checked');
+    const countElement = document.getElementById('selectedCount');
+    if (countElement) {
+        countElement.textContent = checkboxes.length;
+    }
+    updateSelectAllCheckbox();
+}
+
+// Update the state of select all checkbox
+function updateSelectAllCheckbox() {
+    const allCheckboxes = document.querySelectorAll('.issuer-checkbox');
+    const checkedCheckboxes = document.querySelectorAll('.issuer-checkbox:checked');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    
+    if (selectAllCheckbox) {
+        if (checkedCheckboxes.length === 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        } else if (checkedCheckboxes.length === allCheckboxes.length) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+}
+
+// Apply issuer filter
+async function applyIssuerFilter() {
+    try {
+        const checkboxes = document.querySelectorAll('.issuer-checkbox:checked');
+        const selectedIssuers = Array.from(checkboxes).map(cb => cb.value);
+        
+        const response = await fetchWithCredentials('/api/admin/set-selected-issuers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ selectedIssuers })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (selectedIssuers.length === 0) {
+            showAlert('Filter cleared - all issuer data will be shown', 'info');
+        } else {
+            showAlert(`Filter applied to ${selectedIssuers.length} issuers`, 'success');
+        }
+        
+        // Refresh current section data if applicable
+        const currentSection = document.querySelector('.content-section:not([style*="display: none"])');
+        if (currentSection) {
+            const sectionId = currentSection.id.replace('-section', '');
+            if (sectionId === 'dashboard') {
+                loadDashboardData();
+            } else if (sectionId === 'proposals') {
+                loadProposalsData();
+            } else if (sectionId === 'outreach') {
+                loadOutreachLogs();
+            }
+        }
+        
+    } catch (error) {
+        showAlert('Error applying filter: ' + error.message, 'danger');
+    }
+}
+
+// Show application logs
+async function showApplicationLogs() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/logs');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const logs = await response.json();
+        const resultDiv = document.getElementById('systemInfoResult');
+        
+        resultDiv.innerHTML = `
+            <div class="card mt-2">
+                <div class="card-body">
+                    <h6>Recent Application Logs</h6>
+                    <pre style="height: 300px; overflow-y: auto; font-size: 12px;">${logs.logs || 'No logs available'}</pre>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        document.getElementById('systemInfoResult').innerHTML = 
+            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+// User management functions (placeholders for future implementation)
+function showUsers() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    document.getElementById('userManagementResult').innerHTML = 
+        `<div class="alert alert-info">User management feature coming soon...</div>`;
+}
+
+function addUser() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    document.getElementById('userManagementResult').innerHTML = 
+        `<div class="alert alert-info">Add user feature coming soon...</div>`;
+}
+
+function managePermissions() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    document.getElementById('userManagementResult').innerHTML = 
+        `<div class="alert alert-info">Permission management feature coming soon...</div>`;
+}
+
+// Manage databases - show comprehensive database and table information
+async function manageDatabases() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithCredentials('/api/admin/manage-database');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const resultDiv = document.getElementById('databaseManagementResult');
+        
+        // Update database selector if it exists
+        if (data.databases && data.currentDatabase) {
+            updateDatabaseSelector(data.databases, data.currentDatabase);
+        }
+        
+        let html = `
+            <div class="card mt-2">
+                <div class="card-header">
+                    <h6><i class="fas fa-server me-2"></i>Database Management Overview</h6>
+                </div>
+                <div class="card-body">`;
+        
+        // Show databases
+        if (data.databases && data.databases.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h6><i class="fas fa-database me-2"></i>Available Databases</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Database Name</th>
+                                    <th>Size (MB)</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            
+            data.databases.forEach(db => {
+                html += `
+                    <tr${db.current ? ' class="table-primary"' : ''}>
+                        <td>${escapeHtml(db.name)}</td>
+                        <td>${parseFloat(db.size_mb || 0).toFixed(2)}</td>
+                        <td>
+                            ${db.current ? '<span class="badge bg-primary">Current</span>' : '<span class="badge bg-secondary">Available</span>'}
+                        </td>
+                    </tr>`;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
+        
+        // Show tables for current database
+        if (data.tables && data.tables.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h6><i class="fas fa-table me-2"></i>Tables in ${escapeHtml(data.currentDatabase)}</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Table Name</th>
+                                    <th>Records</th>
+                                    <th>Size (MB)</th>
+                                    <th>Engine</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            
+            data.tables.forEach(table => {
+                html += `
+                    <tr>
+                        <td>${escapeHtml(table.table_name)}</td>
+                        <td>${(table.table_rows || 0).toLocaleString()}</td>
+                        <td>${parseFloat(table.size_mb || 0).toFixed(2)}</td>
+                        <td>${escapeHtml(table.engine || '-')}</td>
+                    </tr>`;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
+        
+        // Show summary
+        if (data.summary) {
+            html += `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-chart-pie me-2"></i>Summary</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Total Tables:</strong> ${data.summary.total_tables || 0}</li>
+                            <li><strong>Total Records:</strong> ${(data.summary.total_records || 0).toLocaleString()}</li>
+                            <li><strong>Total Size:</strong> ${parseFloat(data.summary.total_size_mb || 0).toFixed(2)} MB</li>
+                        </ul>
+                    </div>
+                </div>`;
+        }
+        
+        html += `
+                </div>
+            </div>`;
+        
+        resultDiv.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error managing databases:', error);
+        document.getElementById('databaseManagementResult').innerHTML = 
+            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+// Update database selector dropdown
+function updateDatabaseSelector(databases, currentDatabase) {
+    const selector = document.getElementById('databaseSelector');
+    const currentInfo = document.getElementById('currentDatabaseInfo');
+    
+    if (!selector || !currentInfo) return;
+    
+    // Clear existing options
+    selector.innerHTML = '';
+    
+    // Add database options
+    databases.forEach(db => {
+        const option = document.createElement('option');
+        option.value = db.name;
+        option.textContent = `${db.name} (${parseFloat(db.size_mb || 0).toFixed(2)} MB)`;
+        if (db.current) {
+            option.selected = true;
+        }
+        selector.appendChild(option);
+    });
+    
+    // Update current database info
+    currentInfo.textContent = `Current: ${currentDatabase}`;
+}
+
+// Set target database
+async function setTargetDatabase() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
+    const selector = document.getElementById('databaseSelector');
+    const selectedDatabase = selector.value;
+    
+    if (!selectedDatabase) {
+        showAlert('Please select a database', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithCredentials('/api/admin/set-database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ database: selectedDatabase })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert(`Database switched to ${result.currentDatabase}`, 'success');
+            
+            // Update current database info
+            const currentInfo = document.getElementById('currentDatabaseInfo');
+            if (currentInfo) {
+                currentInfo.textContent = `Current: ${result.currentDatabase}`;
+            }
+            
+            // Refresh database management if it's currently displayed
+            const resultDiv = document.getElementById('databaseManagementResult');
+            if (resultDiv && resultDiv.innerHTML.includes('Database Management Overview')) {
+                manageDatabases();
+            }
+            
+        } else {
+            showAlert('Failed to switch database', 'danger');
+        }
+        
+    } catch (error) {
+        console.error('Error setting database:', error);
+        showAlert('Error setting database: ' + error.message, 'danger');
+    }
+}
+
+// Load database selector on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize database selector when page loads
+    if (document.getElementById('databaseSelector')) {
+        // Load initial database information - but only if admin is authenticated
+        setTimeout(() => {
+            if (isAdminAuthenticated) {
+                manageDatabases().catch(console.error);
+            }
+        }, 1000);
+    }
+});

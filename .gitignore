@@ -39,6 +39,7 @@ Thumbs.db
 *.xls
 *.tsv
 *.json.backup
+*.parquet
 
 # Database files and backups
 *.sql

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Debug</title>
+    <style>
+        .debug { border: 2px solid red; padding: 10px; margin: 10px; }
+        .content-section { border: 1px solid blue; padding: 5px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <div class="debug">
+        <h1>Admin Debug Page</h1>
+        <button onclick="testAdminSection()">Test Admin Section</button>
+        <button onclick="checkElements()">Check Elements</button>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function testAdminSection() {
+            const adminSection = document.getElementById('admin-section');
+            const results = document.getElementById('results');
+            
+            if (adminSection) {
+                adminSection.style.display = 'block';
+                results.innerHTML = '<p style="color: green;">Admin section found and displayed!</p>';
+            } else {
+                results.innerHTML = '<p style="color: red;">Admin section NOT found!</p>';
+            }
+        }
+
+        function checkElements() {
+            const sections = document.querySelectorAll('.content-section');
+            const results = document.getElementById('results');
+            
+            results.innerHTML = '<h3>Found sections:</h3>';
+            sections.forEach(section => {
+                results.innerHTML += `<p>ID: ${section.id}, Display: ${section.style.display}</p>`;
+            });
+        }
+
+        // Load the main page's admin section via iframe or fetch
+        fetch('/')
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const adminSection = doc.getElementById('admin-section');
+                
+                if (adminSection) {
+                    document.body.appendChild(adminSection);
+                    document.getElementById('results').innerHTML += '<p style="color: blue;">Admin section loaded from main page</p>';
+                }
+            });
+    </script>
+</body>
+</html>

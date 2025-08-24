@@ -37,8 +37,8 @@ RUN npm install
 # Copy application code
 COPY . .
 
-# Copy the database backup for pre-loading
-COPY docker/proxy_backup.sql /tmp/proxy_backup.sql
+# Copy the fresh database backup for pre-loading
+COPY docker/proxy_backup_new.sql /tmp/proxy_backup.sql
 
 # Create startup script
 COPY docker/start.sh /usr/local/bin/start.sh

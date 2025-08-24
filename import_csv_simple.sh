@@ -118,7 +118,7 @@ EOF
 echo "Processing unvoted accounts..."
 if [ -f "df_2025_279_account_unvoted_sorted.csv" ]; then
     import_csv_simple "df_2025_279_account_unvoted_sorted.csv" "account_unvoted" \
-        "row_index, unnamed_col, proposal_master_skey, director_master_skey, account_type, shares_summable, rank_of_shareholding, score_model1, prediction_model1" \
+        "account_hash_key, proposal_master_skey, director_master_skey, account_type, shares_summable, rank_of_shareholding, score_model1, prediction_model1, Target_encoded" \
         > unvoted_insert.sql 2>unvoted_progress.log
     
     if [ -s unvoted_insert.sql ]; then
@@ -143,7 +143,7 @@ echo ""
 echo "Processing voted accounts..."
 if [ -f "df_2025_279_account_voted_sorted.csv" ]; then
     import_csv_simple "df_2025_279_account_voted_sorted.csv" "account_voted" \
-        "row_index, unnamed_col, proposal_master_skey, director_master_skey, account_type, shares_summable, rank_of_shareholding, score_model2, prediction_model2" \
+        "account_hash_key, proposal_master_skey, director_master_skey, account_type, shares_summable, rank_of_shareholding, score_model2, prediction_model2, Target_encoded" \
         > voted_insert.sql 2>voted_progress.log
     
     if [ -s voted_insert.sql ]; then

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Admin Test</title>
+    <style>
+        .content-section { display: none; border: 2px solid blue; padding: 20px; margin: 10px; }
+        .active-section { display: block !important; background: lightgreen; }
+    </style>
+</head>
+<body>
+    <h1>Simple Admin Section Test</h1>
+    
+    <button onclick="showAdminSection()">Show Admin Section</button>
+    <button onclick="hideAllSections()">Hide All Sections</button>
+    
+    <div id="admin-section" class="content-section">
+        <h2>🎉 ADMIN SECTION IS VISIBLE! 🎉</h2>
+        <p>This confirms the admin section can be displayed.</p>
+        <div class="card">
+            <div class="card-header">
+                <h5>Database Management</h5>
+            </div>
+            <div class="card-body">
+                <p>Admin panel content would go here...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-section" class="content-section">
+        <h2>Dashboard Section</h2>
+        <p>This is the dashboard.</p>
+    </div>
+
+    <script>
+        function showAdminSection() {
+            console.log('showAdminSection called');
+            
+            // Hide all sections
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.style.display = 'none';
+                section.classList.remove('active-section');
+            });
+            
+            // Show admin section
+            const adminSection = document.getElementById('admin-section');
+            console.log('Admin section element:', adminSection);
+            
+            if (adminSection) {
+                adminSection.style.display = 'block';
+                adminSection.classList.add('active-section');
+                console.log('Admin section should now be visible');
+            } else {
+                console.error('Admin section not found!');
+            }
+        }
+
+        function hideAllSections() {
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.style.display = 'none';
+                section.classList.remove('active-section');
+            });
+        }
+    </script>
+</body>
+</html>

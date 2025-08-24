@@ -1,0 +1,33 @@
+# Production Dockerfile - Optimized for smaller size
+# Use Node.js Alpine for smaller base image
+FROM node:20-alpine
+
+# Install MySQL client only (not server)
+RUN apk add --no-cache mysql-client curl
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files first for better caching
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code (excluding large data files via .dockerignore)
+COPY server.js ./
+COPY public/ ./public/
+COPY sql/ ./sql/
+
+# Create uploads directory
+RUN mkdir -p uploads && chmod 777 uploads
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/ || exit 1
+
+# Start the application
+CMD ["node", "server.js"]

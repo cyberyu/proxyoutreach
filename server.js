@@ -7,12 +7,24 @@ const csv = require('csv-parser');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const session = require('express-session');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Session configuration for issuer filtering
+app.use(session({
+  secret: 'proxy-outreach-session-secret',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+}));
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
@@ -28,6 +40,9 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+
+// Current database tracking
+let currentDatabase = 'proxy';
 
 // MySQL connection
 const db = mysql.createConnection({
@@ -49,25 +64,29 @@ db.connect((err) => {
   initializeDatabase();
 });
 
+// Helper function to build issuer filter for queries
+function buildIssuerFilter(req, tableAlias = '') {
+  const selectedIssuers = req.session.selectedIssuers;
+  if (!selectedIssuers || selectedIssuers.length === 0) {
+    return { whereClause: '', params: [] };
+  }
+  
+  const prefix = tableAlias ? `${tableAlias}.` : '';
+  const placeholders = selectedIssuers.map(() => '?').join(',');
+  
+  // For tables that join with proposals_predictions
+  const whereClause = `AND EXISTS (
+    SELECT 1 FROM proposals_predictions pp 
+    WHERE (pp.proposal_master_skey = ${prefix}proposal_master_skey 
+           OR pp.director_master_skey = ${prefix}director_master_skey)
+    AND pp.issuer_name IN (${placeholders})
+  )`;
+  
+  return { whereClause, params: selectedIssuers };
+}
+
 // Initialize database and tables
 function initializeDatabase() {
-  // Create accounts table
-  const createAccountsTable = `
-    CREATE TABLE IF NOT EXISTS accounts (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      account_id VARCHAR(255) UNIQUE,
-      account_name VARCHAR(255),
-      voting_status ENUM('voted', 'unvoted') DEFAULT 'unvoted',
-      contact_email VARCHAR(255),
-      contact_phone VARCHAR(50),
-      outreach_status ENUM('pending', 'contacted', 'responded', 'completed') DEFAULT 'pending',
-      last_contact_date DATE,
-      notes TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `;
-
   // Create outreach_logs table
   const createOutreachLogsTable = `
     CREATE TABLE IF NOT EXISTS outreach_logs (
@@ -77,8 +96,7 @@ function initializeDatabase() {
       contact_date DATE,
       outcome VARCHAR(255),
       notes TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (account_id) REFERENCES accounts(account_id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `;
 
@@ -104,11 +122,6 @@ function initializeDatabase() {
       INDEX idx_outreach_dm (director_master_skey)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `;
-
-  db.query(createAccountsTable, (err) => {
-    if (err) console.error('Error creating accounts table:', err);
-    else console.log('Accounts table ready');
-  });
 
   db.query(createOutreachLogsTable, (err) => {
     if (err) console.error('Error creating outreach_logs table:', err);
@@ -183,144 +196,6 @@ function initializeDatabase() {
 
 // Routes
 
-// Get all accounts
-app.get('/api/accounts', (req, res) => {
-  const { status, voting_status } = req.query;
-  let query = 'SELECT * FROM accounts';
-  let queryParams = [];
-
-  if (status || voting_status) {
-    query += ' WHERE';
-    const conditions = [];
-    
-    if (status) {
-      conditions.push(' outreach_status = ?');
-      queryParams.push(status);
-    }
-    
-    if (voting_status) {
-      conditions.push(' voting_status = ?');
-      queryParams.push(voting_status);
-    }
-    
-    query += conditions.join(' AND');
-  }
-
-  query += ' ORDER BY created_at DESC';
-
-  db.query(query, queryParams, (err, results) => {
-    if (err) {
-      console.error('Error fetching accounts:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    res.json(results);
-  });
-});
-
-// Get single account
-app.get('/api/accounts/:id', (req, res) => {
-  const accountId = req.params.id;
-  
-  db.query('SELECT * FROM accounts WHERE account_id = ?', [accountId], (err, results) => {
-    if (err) {
-      console.error('Error fetching account:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    
-    if (results.length === 0) {
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-    
-    res.json(results[0]);
-  });
-});
-
-// Create new account
-app.post('/api/accounts', (req, res) => {
-  const {
-    account_id,
-    account_name,
-    voting_status,
-    contact_email,
-    contact_phone,
-    outreach_status,
-    notes
-  } = req.body;
-
-  const query = `
-    INSERT INTO accounts (account_id, account_name, voting_status, contact_email, contact_phone, outreach_status, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
-
-  db.query(query, [account_id, account_name, voting_status, contact_email, contact_phone, outreach_status, notes], (err, result) => {
-    if (err) {
-      console.error('Error creating account:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    res.status(201).json({ message: 'Account created successfully', id: result.insertId });
-  });
-});
-
-// Update account
-app.put('/api/accounts/:id', (req, res) => {
-  const accountId = req.params.id;
-  const {
-    account_name,
-    voting_status,
-    contact_email,
-    contact_phone,
-    outreach_status,
-    last_contact_date,
-    notes
-  } = req.body;
-
-  const query = `
-    UPDATE accounts 
-    SET account_name = ?, voting_status = ?, contact_email = ?, contact_phone = ?, 
-        outreach_status = ?, last_contact_date = ?, notes = ?
-    WHERE account_id = ?
-  `;
-
-  db.query(query, [account_name, voting_status, contact_email, contact_phone, outreach_status, last_contact_date, notes, accountId], (err, result) => {
-    if (err) {
-      console.error('Error updating account:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    
-    if (result.affectedRows === 0) {
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-    
-    res.json({ message: 'Account updated successfully' });
-  });
-});
-
-// Delete account
-app.delete('/api/accounts/:id', (req, res) => {
-  const accountId = req.params.id;
-  
-  db.query('DELETE FROM accounts WHERE account_id = ?', [accountId], (err, result) => {
-    if (err) {
-      console.error('Error deleting account:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    
-    if (result.affectedRows === 0) {
-      res.status(404).json({ error: 'Account not found' });
-      return;
-    }
-    
-    res.json({ message: 'Account deleted successfully' });
-  });
-});
-
 // Upload and import CSV/Excel files
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
@@ -374,60 +249,22 @@ function importExcel(filePath, res) {
   }
 }
 
-// Insert account data from imported files
+// Insert account data from imported files - DEPRECATED: accounts table removed
 function insertAccountData(data, res) {
-  let imported = 0;
-  let errors = 0;
-
-  data.forEach((row, index) => {
-    // Map common column names (adjust based on your CSV structure)
-    const account_id = row.account_id || row.Account_ID || row.id;
-    const account_name = row.account_name || row.Account_Name || row.name;
-    const voting_status = row.voting_status || (row.voted ? 'voted' : 'unvoted');
-    const contact_email = row.contact_email || row.email;
-    const contact_phone = row.contact_phone || row.phone;
-
-    if (!account_id) {
-      errors++;
-      return;
-    }
-
-    const query = `
-      INSERT INTO accounts (account_id, account_name, voting_status, contact_email, contact_phone)
-      VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-      account_name = VALUES(account_name),
-      voting_status = VALUES(voting_status),
-      contact_email = VALUES(contact_email),
-      contact_phone = VALUES(contact_phone)
-    `;
-
-    db.query(query, [account_id, account_name, voting_status, contact_email, contact_phone], (err, result) => {
-      if (err) {
-        console.error(`Error inserting row ${index}:`, err);
-        errors++;
-      } else {
-        imported++;
-      }
-
-      // Send response when all rows are processed
-      if (imported + errors === data.length) {
-        res.json({
-          message: `Import completed. ${imported} records imported, ${errors} errors.`,
-          imported,
-          errors
-        });
-      }
-    });
+  // Accounts table has been removed - return an error message
+  res.status(400).json({
+    error: 'Account import functionality has been removed. Please use the specialized data import endpoints.',
+    message: 'The accounts table functionality has been deprecated.',
+    imported: 0,
+    errors: data.length
   });
 }
 
 // Get outreach logs
 app.get('/api/outreach-logs', (req, res) => {
   const query = `
-    SELECT ol.*, a.account_name 
+    SELECT ol.*
     FROM outreach_logs ol
-    LEFT JOIN accounts a ON ol.account_id = a.account_id
     ORDER BY ol.contact_date DESC
   `;
 
@@ -456,9 +293,6 @@ app.post('/api/outreach-logs', (req, res) => {
       res.status(500).json({ error: 'Internal server error' });
       return;
     }
-    
-    // Update last contact date in accounts table
-    db.query('UPDATE accounts SET last_contact_date = ? WHERE account_id = ?', [contact_date, account_id]);
     
     res.status(201).json({ message: 'Outreach log created successfully', id: result.insertId });
   });
@@ -501,22 +335,35 @@ app.get('/api/proposals', (req, res) => {
   
   let whereClause = '';
   const conditions = [];
+  const params = [];
   
   if (req.query.prediction_correct) {
-    conditions.push(`prediction_correct = ${req.query.prediction_correct === 'true' ? 'true' : 'false'}`);
+    conditions.push(`prediction_correct = ?`);
+    params.push(req.query.prediction_correct === 'true' ? 1 : 0);
   }
   
   if (req.query.approved) {
-    conditions.push(`approved = ${req.query.approved === 'true' ? 'true' : 'false'}`);
+    conditions.push(`approved = ?`);
+    params.push(req.query.approved === 'true' ? 1 : 0);
   }
   
   if (req.query.category) {
-    conditions.push(`category = '${req.query.category.replace(/'/g, "''")}'`);
+    conditions.push(`category = ?`);
+    params.push(req.query.category);
   }
   
   if (req.query.search) {
-    const search = req.query.search.replace(/'/g, "''");
-    conditions.push(`(issuer_name LIKE '%${search}%' OR proposal LIKE '%${search}%' OR final_key LIKE '%${search}%')`);
+    conditions.push(`(issuer_name LIKE ? OR proposal LIKE ? OR final_key LIKE ?)`);
+    const searchTerm = `%${req.query.search}%`;
+    params.push(searchTerm, searchTerm, searchTerm);
+  }
+  
+  // Add issuer filter
+  const selectedIssuers = req.session.selectedIssuers;
+  if (selectedIssuers && selectedIssuers.length > 0) {
+    const placeholders = selectedIssuers.map(() => '?').join(',');
+    conditions.push(`issuer_name IN (${placeholders})`);
+    params.push(...selectedIssuers);
   }
   
   if (conditions.length > 0) {
@@ -526,7 +373,7 @@ app.get('/api/proposals', (req, res) => {
   // Get total count
   const countQuery = `SELECT COUNT(*) as total FROM proposals_predictions ${whereClause}`;
   
-  db.query(countQuery, (err, countResult) => {
+  db.query(countQuery, params, (err, countResult) => {
     if (err) {
       console.error('Error counting proposals:', err);
       return res.status(500).json({ error: 'Database error' });
@@ -540,10 +387,12 @@ app.get('/api/proposals', (req, res) => {
       FROM proposals_predictions 
       ${whereClause}
       ORDER BY id DESC
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ? OFFSET ?
     `;
     
-    db.query(dataQuery, (err, results) => {
+    const queryParams = [...params, limit, offset];
+    
+    db.query(dataQuery, queryParams, (err, results) => {
       if (err) {
         console.error('Error fetching proposals:', err);
         return res.status(500).json({ error: 'Database error' });
@@ -556,6 +405,11 @@ app.get('/api/proposals', (req, res) => {
           per_page: limit,
           total: total,
           total_pages: Math.ceil(total / limit)
+        },
+        issuer_filter: {
+          active: selectedIssuers && selectedIssuers.length > 0,
+          selected_issuers: selectedIssuers || [],
+          count: selectedIssuers ? selectedIssuers.length : 0
         }
       });
     });
@@ -564,9 +418,20 @@ app.get('/api/proposals', (req, res) => {
 
 // Get unique categories for filter
 app.get('/api/proposals/categories', (req, res) => {
-  const query = 'SELECT DISTINCT category FROM proposals_predictions WHERE category IS NOT NULL ORDER BY category';
+  let whereClause = '';
+  const params = [];
   
-  db.query(query, (err, results) => {
+  // Add issuer filter
+  const selectedIssuers = req.session.selectedIssuers;
+  if (selectedIssuers && selectedIssuers.length > 0) {
+    const placeholders = selectedIssuers.map(() => '?').join(',');
+    whereClause = `WHERE issuer_name IN (${placeholders})`;
+    params.push(...selectedIssuers);
+  }
+  
+  const query = `SELECT DISTINCT category FROM proposals_predictions ${whereClause} AND category IS NOT NULL ORDER BY category`;
+  
+  db.query(query, params, (err, results) => {
     if (err) {
       console.error('Error fetching categories:', err);
       return res.status(500).json({ error: 'Database error' });
@@ -766,6 +631,303 @@ if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
 }
 
+// ========== ADMIN API ENDPOINTS ==========
+
+// Admin login endpoint
+app.post('/api/admin/login', (req, res) => {
+  const { password } = req.body;
+  
+  if (password === '12345678') {
+    req.session.isAdmin = true;
+    res.json({ success: true, message: 'Admin authenticated' });
+  } else {
+    res.status(401).json({ success: false, message: 'Invalid password' });
+  }
+});
+
+// Admin authentication middleware
+function requireAdmin(req, res, next) {
+  if (req.session.isAdmin) {
+    next();
+  } else {
+    res.status(403).json({ error: 'Admin authentication required' });
+  }
+}
+
+// Get database statistics
+app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
+  try {
+    const stats = {};
+    
+    // Get voted accounts count
+    const [votedResult] = await db.promise().query('SELECT COUNT(*) as count FROM account_voted');
+    stats.voted_count = votedResult[0].count;
+    
+    // Get unvoted accounts count  
+    const [unvotedResult] = await db.promise().query('SELECT COUNT(*) as count FROM account_unvoted');
+    stats.unvoted_count = unvotedResult[0].count;
+    
+    // Calculate total accounts
+    stats.total_accounts = stats.voted_count + stats.unvoted_count;
+    
+    // Get outreach logs count
+    const [outreachResult] = await db.promise().query('SELECT COUNT(*) as count FROM outreach_logs');
+    stats.outreach_logs = outreachResult[0].count;
+    
+    // Get proposals count
+    const [proposalsResult] = await db.promise().query('SELECT COUNT(DISTINCT proposal_master_skey) as count FROM proposals_predictions');
+    stats.proposals = proposalsResult[0].count;
+    
+    // Get database size
+    const [sizeResult] = await db.promise().query(`
+      SELECT ROUND(SUM(DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024, 2) AS size_mb 
+      FROM information_schema.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE()
+    `);
+    stats.database_size = `${sizeResult[0].size_mb || 0} MB`;
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting database statistics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Comprehensive database management endpoint (no backup tables)
+app.get('/api/admin/manage-database', requireAdmin, async (req, res) => {
+  try {
+    const result = {
+      databases: [],
+      tables: [],
+      summary: {},
+      currentDatabase: currentDatabase
+    };
+    // Get list of available databases (proxy and proxy_sds)
+    const availableDatabases = ['proxy', 'proxy_sds'];
+    // Get information for all databases
+    for (const dbName of availableDatabases) {
+      const [sizeResult] = await db.promise().query(`
+        SELECT CAST(ROUND(SUM(DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024, 2) AS DECIMAL(10,2)) AS size_mb 
+        FROM information_schema.TABLES 
+        WHERE TABLE_SCHEMA = ?
+      `, [dbName]);
+      result.databases.push({
+        name: dbName,
+        size_mb: sizeResult[0].size_mb || 0,
+        current: dbName === currentDatabase
+      });
+    }
+    // Get table information for currently selected database, excluding backup tables
+    const [tables] = await db.promise().query(`
+      SELECT 
+        TABLE_NAME as table_name,
+        TABLE_ROWS as table_rows,
+        CAST(ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) AS DECIMAL(10,2)) AS size_mb,
+        ENGINE as engine,
+        TABLE_COMMENT as table_comment
+      FROM information_schema.TABLES 
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME NOT LIKE '%backup%'
+      ORDER BY TABLE_NAME
+    `, [currentDatabase]);
+    result.tables = tables;
+    // Calculate summary statistics for current database (no backup tables)
+    const totalSizeSum = tables.reduce((sum, table) => {
+      const size = parseFloat(table.size_mb) || 0;
+      return sum + size;
+    }, 0);
+    result.summary = {
+      total_tables: tables.length,
+      total_records: tables.reduce((sum, table) => sum + (table.table_rows || 0), 0),
+      total_size_mb: parseFloat(totalSizeSum.toFixed(2)),
+      data_tables: tables.length,
+      backup_tables: 0,
+      connections: null
+    };
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting database management info:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set target database endpoint
+app.post('/api/admin/set-database', requireAdmin, async (req, res) => {
+  try {
+    const { database } = req.body;
+    
+    if (!database) {
+      return res.status(400).json({ error: 'Database name is required' });
+    }
+    
+    // Validate database name (only allow proxy and proxy_sds)
+    const allowedDatabases = ['proxy', 'proxy_sds'];
+    if (!allowedDatabases.includes(database)) {
+      return res.status(400).json({ error: 'Invalid database name. Allowed: ' + allowedDatabases.join(', ') });
+    }
+    
+    // Test connection to the target database
+    const testConnection = mysql.createConnection({
+      host: 'localhost',
+      user: 'webapp',
+      password: 'webapppass',
+      database: database
+    });
+    
+    // Test the connection
+    await new Promise((resolve, reject) => {
+      testConnection.connect((err) => {
+        if (err) {
+          testConnection.destroy();
+          reject(err);
+        } else {
+          testConnection.end();
+          resolve();
+        }
+      });
+    });
+    
+    // Update current database tracking
+    currentDatabase = database;
+    
+    // Switch the main connection to the new database
+    db.changeUser({ database: database }, (err) => {
+      if (err) {
+        console.error('Error switching database:', err);
+        return res.status(500).json({ error: 'Failed to switch database: ' + err.message });
+      }
+      
+      console.log(`Database switched to: ${database}`);
+      res.json({ 
+        success: true, 
+        currentDatabase: database,
+        message: `Successfully switched to database: ${database}`
+      });
+    });
+    
+  } catch (error) {
+    console.error('Error setting target database:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get issuer list
+app.get('/api/admin/issuer-list', requireAdmin, async (req, res) => {
+  try {
+    // Get all unique issuers from proposals_predictions table
+    const [issuers] = await db.promise().query(`
+      SELECT 
+        issuer_name as name,
+        COUNT(DISTINCT proposal_master_skey) as proposal_count,
+        COUNT(DISTINCT director_master_skey) as director_count,
+        'active' as status
+      FROM proposals_predictions 
+      WHERE issuer_name IS NOT NULL AND issuer_name != ''
+      GROUP BY issuer_name
+      ORDER BY issuer_name
+    `);
+    
+    // Add selection status based on session
+    const selectedIssuers = req.session.selectedIssuers || [];
+    const issuersWithSelection = issuers.map(issuer => ({
+      ...issuer,
+      selected: selectedIssuers.includes(issuer.name)
+    }));
+    
+    res.json({ 
+      issuers: issuersWithSelection,
+      totalIssuers: issuers.length,
+      selectedCount: selectedIssuers.length
+    });
+  } catch (error) {
+    console.error('Error getting issuer list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set selected issuers
+app.post('/api/admin/set-selected-issuers', requireAdmin, (req, res) => {
+  try {
+    const { selectedIssuers } = req.body;
+    
+    if (!Array.isArray(selectedIssuers)) {
+      return res.status(400).json({ error: 'selectedIssuers must be an array' });
+    }
+    
+    req.session.selectedIssuers = selectedIssuers;
+    
+    res.json({ 
+      message: 'Selected issuers updated successfully',
+      selectedIssuers: selectedIssuers,
+      count: selectedIssuers.length
+    });
+  } catch (error) {
+    console.error('Error setting selected issuers:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get current selected issuers
+app.get('/api/admin/selected-issuers', (req, res) => {
+  try {
+    const selectedIssuers = req.session.selectedIssuers || [];
+    res.json({ selectedIssuers, count: selectedIssuers.length });
+  } catch (error) {
+    console.error('Error getting selected issuers:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export database (create backup)
+app.post('/api/admin/export-database', (req, res) => {
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `proxy_backup_${timestamp}.sql`;
+    
+    // Note: This is a simplified version. In production, you'd use mysqldump
+    res.json({ 
+      message: 'Database export feature would create: ' + filename,
+      note: 'This feature requires mysqldump implementation'
+    });
+  } catch (error) {
+    console.error('Error exporting database:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear database (with extreme caution)
+app.post('/api/admin/clear-database', async (req, res) => {
+  try {
+    // This is dangerous - in production, add proper authentication
+    await db.promise().query('DELETE FROM outreach_logs');
+    await db.promise().query('DELETE FROM outreach');
+    await db.promise().query('DELETE FROM account_voted');
+    await db.promise().query('DELETE FROM account_unvoted');
+    
+    res.json({ message: 'All data cleared from database' });
+  } catch (error) {
+    console.error('Error clearing database:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get application logs (simplified)
+app.get('/api/admin/logs', (req, res) => {
+  try {
+    // In a real application, you'd read from log files
+    const logs = `
+Application Logs (Last 10 entries):
+${new Date().toISOString()} - Server started
+${new Date().toISOString()} - Database connected
+${new Date().toISOString()} - Admin panel accessed
+    `.trim();
+    
+    res.json({ logs });
+  } catch (error) {
+    console.error('Error getting logs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
@@ -827,8 +989,10 @@ app.post('/api/outreach/bulk-add', (req, res) => {
 
   db.query(countSql, params, (err, countRows) => {
     if (err) {
-      console.error('Error counting account_unvoted for outreach insert:', err);
-      return res.status(500).json({ error: 'Database error' });
+      if (err) {
+        console.error('Error counting account_unvoted for outreach insert:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
     }
     const toSelect = (countRows && countRows[0] && countRows[0].cnt) ? Number(countRows[0].cnt) : 0;
 
@@ -861,24 +1025,54 @@ app.post('/api/outreach/bulk-add', (req, res) => {
       // Calculate total shares for accounts being added
       const totalShares = toInsert.reduce((sum, row) => sum + (parseFloat(row.shares_summable) || 0), 0);
 
-      db.query(insertSql, params, (e2, result) => {
-        if (e2) {
-          console.error('Error inserting into outreach from account_unvoted:', e2);
+      // Dynamically determine which columns exist in both outreach and account_unvoted
+      db.query('SHOW COLUMNS FROM outreach', (err, outreachColsRows) => {
+        if (err) {
+          console.error('Error fetching outreach columns:', err);
           return res.status(500).json({ error: 'Database error' });
         }
-        
-        const inserted = result && typeof result.affectedRows === 'number' ? result.affectedRows : 0;
-        
-        // Generate duplicate messages
-        const duplicateMessages = duplicates.map(row => 
-          `account_hash_key(${row.account_hash_key})+proposal_master_skey(${row.proposal_master_skey})+director_master_skey(${row.director_master_skey}) is not inserted because it is already in outreach table`
-        );
+        const outreachCols = outreachColsRows.map(r => r.Field).filter(c => c !== 'id' && c !== 'created_at');
 
-        res.json({ 
-          inserted, 
-          skipped: duplicates.length,
-          totalShares: totalShares,
-          duplicateMessages: duplicateMessages
+        db.query('SHOW COLUMNS FROM account_unvoted', (err, unvotedColsRows) => {
+          if (err) {
+            console.error('Error fetching account_unvoted columns:', err);
+            return res.status(500).json({ error: 'Database error' });
+          }
+          const unvotedCols = unvotedColsRows.map(r => r.Field);
+
+          // Intersection of columns, preserving outreach column order
+          const commonCols = outreachCols.filter(c => unvotedCols.includes(c));
+
+          if (!commonCols.length) {
+            console.error('No common columns found between outreach and account_unvoted');
+            return res.status(500).json({ error: 'Schema mismatch: no common columns to copy' });
+          }
+
+          const insertCols = commonCols.map(col => `\`${col}\``).join(', ');
+          const selectCols = commonCols.map(col => `u.\`${col}\``).join(', ');
+
+          const insertSqlDynamic = `INSERT IGNORE INTO outreach (${insertCols}) SELECT ${selectCols} FROM account_unvoted u WHERE account_hash_key IN (${placeholders}) AND u.${whereKeyClause}`;
+
+          db.query(insertSqlDynamic, params, (e2, result) => {
+            if (e2) {
+              console.error('Error inserting into outreach from account_unvoted:', e2);
+              return res.status(500).json({ error: 'Database error' });
+            }
+            
+            const inserted = result && typeof result.affectedRows === 'number' ? result.affectedRows : 0;
+            
+            // Generate duplicate messages
+            const duplicateMessages = duplicates.map(row => 
+              `account_hash_key(${row.account_hash_key})+proposal_master_skey(${row.proposal_master_skey})+director_master_skey(${row.director_master_skey}) is not inserted because it is already in outreach table`
+            );
+
+            res.json({ 
+              inserted, 
+              skipped: duplicates.length,
+              totalShares: totalShares,
+              duplicateMessages: duplicateMessages
+            });
+          });
         });
       });
     });
@@ -899,4 +1093,318 @@ app.get('/api/outreach', (req, res) => {
     }
     res.json(rows);
   });
+});
+
+// --- Download Example Format Endpoint ---
+app.get('/api/download-example/:type', (req, res) => {
+  const type = req.params.type;
+  
+  // Generate example data based on type
+  let data, filename, contentType;
+  
+  if (type === 'proposal') {
+    // Generate example proposal data
+    const headers = [
+      'proposal_master_skey', 'director_master_skey', 'final_key', 'job_number', 'issuer_name',
+      'service', 'cusip6', 'mt_date', 'ml_date', 'record_date', 'mgmt_rec', 'proposal',
+      'proposal_type', 'director_number', 'director_name', 'Category', 'Subcategory',
+      'predicted_for_shares', 'predicted_against_shares', 'predicted_abstain_shares',
+      'predicted_unvoted_shares', 'total_for_shares', 'total_against_shares', 'total_abstain_shares',
+      'total_unvoted_shares', 'ForRatioAmongVoted', 'ForRatioAmongElig', 'VotingRatio',
+      'ForRatioAmongVoted_true', 'ForRatioAmongElig_true', 'VotingRatio_true',
+      'ForRatioAmongVotedInclAbs', 'ForRatioAmongEligInclAbs', 'VotingRatioInclAbs',
+      'ForRatioAmongVotedInclAbs_true', 'ForRatioAmongEligInclAbs_true', 'VotingRatioInclAbs_true',
+      'For %', 'Against %', 'Abstain %', 'For % True', 'Against % True', 'Abstain % True',
+      'prediction_correct', 'approved', 'For (%) - From Prospectus 2026 File',
+      'Against (%) - From Prospectus 2026 File', 'Abstain/Withhold (%) - From Prospectus 2026 File'
+    ];
+    
+    const sampleRows = [];
+    for (let i = 1; i <= 100; i++) {
+      sampleRows.push([
+        10000 + i, 20000 + i, `FK${i}`, `JOB${i}`, `Sample Company ${i}`,
+        'Proxy Services', `CUS${i.toString().padStart(3, '0')}`, '2025-01-15', '2025-02-15', '2025-01-01',
+        'FOR', `Proposal ${i}`, 'Governance', i, `Director ${i}`, 'Board', 'Election',
+        Math.random() * 1000000, Math.random() * 100000, Math.random() * 50000,
+        Math.random() * 200000, Math.random() * 1200000, Math.random() * 150000, Math.random() * 60000,
+        Math.random() * 250000, Math.random(), Math.random(), Math.random(),
+        Math.random(), Math.random(), Math.random(),
+        Math.random(), Math.random(), Math.random(),
+        Math.random(), Math.random(), Math.random(),
+        Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random(),
+        Math.random() > 0.5, Math.random() > 0.5, Math.random(), Math.random(), Math.random()
+      ]);
+    }
+    
+    // Create Excel workbook
+    const XLSX = require('xlsx');
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Proposals');
+    
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    filename = 'example_proposal_data.xlsx';
+    contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    data = buffer;
+    
+  } else if (type === 'unvoted') {
+    // Generate example unvoted accounts data
+    const headers = [
+      'row_index', 'unnamed_col', 'account_hash_key', 'proposal_master_skey', 'director_master_skey',
+      'account_type', 'shares_summable', 'rank_of_shareholding', 'score_model1', 'prediction_model1', 'Target_encoded'
+    ];
+    
+    const csvRows = [headers.join(',')];
+    for (let i = 1; i <= 100; i++) {
+      csvRows.push([
+        i,
+        `unvoted_${i}`,
+        `HASH${i.toString().padStart(8, '0')}`,
+        10000 + i,
+        20000 + i,
+        ['Individual', 'Institution', 'Mutual Fund'][i % 3],
+        Math.floor(Math.random() * 100000),
+        Math.floor(Math.random() * 1000) + 1,
+        Math.random(),
+        Math.random() > 0.5 ? 1 : 0,
+        Math.floor(Math.random() * 2)
+      ].join(','));
+    }
+    
+    data = csvRows.join('\n');
+    filename = 'example_unvoted_accounts.csv';
+    contentType = 'text/csv';
+    
+  } else if (type === 'voted') {
+    // Generate example voted accounts data
+    const headers = [
+      'row_index', 'unnamed_col', 'account_hash_key', 'proposal_master_skey', 'director_master_skey',
+      'account_type', 'shares_summable', 'rank_of_shareholding', 'score_model2', 'prediction_model2', 'Target_encoded'
+    ];
+    
+    const csvRows = [headers.join(',')];
+    for (let i = 1; i <= 100; i++) {
+      csvRows.push([
+        i,
+        `voted_${i}`,
+        `HASH${i.toString().padStart(8, '0')}`,
+        10000 + i,
+        20000 + i,
+        ['Individual', 'Institution', 'Mutual Fund'][i % 3],
+        Math.floor(Math.random() * 100000),
+        Math.floor(Math.random() * 1000) + 1,
+        Math.random(),
+        Math.random() > 0.5 ? 1 : 0,
+        Math.floor(Math.random() * 2)
+      ].join(','));
+    }
+    
+    data = csvRows.join('\n');
+    filename = 'example_voted_accounts.csv';
+    contentType = 'text/csv';
+    
+  } else {
+    return res.status(400).json({ error: 'Invalid type. Use proposal, unvoted, or voted.' });
+  }
+  
+  // Set headers for download
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(data);
+});
+
+// --- Data Format Validation Endpoint ---
+const { v4: uuidv4 } = require('uuid');
+const mysql2 = require('mysql2/promise');
+
+app.post('/api/validate-import', upload.single('file'), async (req, res) => {
+  const type = req.query.type;
+  if (!req.file || !type) {
+    return res.status(400).json({ error: 'File and type are required' });
+  }
+  const filePath = req.file.path;
+  let schema, tableName, parseExcel = false;
+  // Define schemas
+  if (type === 'proposal') {
+    tableName = 'proposals_predictions';
+    parseExcel = true;
+    schema = [
+      { name: 'proposal_master_skey', type: 'int' },
+      { name: 'director_master_skey', type: 'int' },
+      { name: 'final_key', type: 'string' },
+      { name: 'job_number', type: 'string' },
+      { name: 'issuer_name', type: 'string' },
+      { name: 'service', type: 'string' },
+      { name: 'cusip6', type: 'string' },
+      { name: 'mt_date', type: 'date' },
+      { name: 'ml_date', type: 'date' },
+      { name: 'record_date', type: 'date' },
+      { name: 'mgmt_rec', type: 'string' },
+      { name: 'proposal', type: 'string' },
+      { name: 'proposal_type', type: 'string' },
+      { name: 'director_number', type: 'int' },
+      { name: 'director_name', type: 'string' },
+      { name: 'Category', type: 'string' },
+      { name: 'Subcategory', type: 'string' },
+      { name: 'predicted_for_shares', type: 'float' },
+      { name: 'predicted_against_shares', type: 'float' },
+      { name: 'predicted_abstain_shares', type: 'float' },
+      { name: 'predicted_unvoted_shares', type: 'float' },
+      { name: 'total_for_shares', type: 'float' },
+      { name: 'total_against_shares', type: 'float' },
+      { name: 'total_abstain_shares', type: 'float' },
+      { name: 'total_unvoted_shares', type: 'float' },
+      { name: 'ForRatioAmongVoted', type: 'float' },
+      { name: 'ForRatioAmongElig', type: 'float' },
+      { name: 'VotingRatio', type: 'float' },
+      { name: 'ForRatioAmongVoted_true', type: 'float' },
+      { name: 'ForRatioAmongElig_true', type: 'float' },
+      { name: 'VotingRatio_true', type: 'float' },
+      { name: 'ForRatioAmongVotedInclAbs', type: 'float' },
+      { name: 'ForRatioAmongEligInclAbs', type: 'float' },
+      { name: 'VotingRatioInclAbs', type: 'float' },
+      { name: 'ForRatioAmongVotedInclAbs_true', type: 'float' },
+      { name: 'ForRatioAmongEligInclAbs_true', type: 'float' },
+      { name: 'VotingRatioInclAbs_true', type: 'float' },
+      { name: 'For %', type: 'float' },
+      { name: 'Against %', type: 'float' },
+      { name: 'Abstain %', type: 'float' },
+      { name: 'For % True', type: 'float' },
+      { name: 'Against % True', type: 'float' },
+      { name: 'Abstain % True', type: 'float' },
+      { name: 'prediction_correct', type: 'bool' },
+      { name: 'approved', type: 'bool' },
+      { name: 'For (%) - From Prospectus 2026 File', type: 'float' },
+      { name: 'Against (%) - From Prospectus 2026 File', type: 'float' },
+      { name: 'Abstain/Withhold (%) - From Prospectus 2026 File', type: 'float' }
+    ];
+  } else if (type === 'unvoted') {
+    tableName = 'account_unvoted';
+    schema = [
+      { name: 'row_index', type: 'int' },
+      { name: 'unnamed_col', type: 'string' },
+      { name: 'account_hash_key', type: 'string' },
+      { name: 'proposal_master_skey', type: 'int' },
+      { name: 'director_master_skey', type: 'int' },
+      { name: 'account_type', type: 'string' },
+      { name: 'shares_summable', type: 'float' },
+      { name: 'rank_of_shareholding', type: 'int' },
+      { name: 'score_model1', type: 'float' },
+      { name: 'prediction_model1', type: 'int' },
+      { name: 'Target_encoded', type: 'int' }
+    ];
+  } else if (type === 'voted') {
+    tableName = 'account_voted';
+    schema = [
+      { name: 'row_index', type: 'int' },
+      { name: 'unnamed_col', type: 'string' },
+      { name: 'account_hash_key', type: 'string' },
+      { name: 'proposal_master_skey', type: 'int' },
+      { name: 'director_master_skey', type: 'int' },
+      { name: 'account_type', type: 'string' },
+      { name: 'shares_summable', type: 'float' },
+      { name: 'rank_of_shareholding', type: 'int' },
+      { name: 'score_model2', type: 'float' },
+      { name: 'prediction_model2', type: 'int' },
+      { name: 'Target_encoded', type: 'int' }
+    ];
+  } else {
+    fs.unlinkSync(filePath);
+    return res.status(400).json({ error: 'Invalid type' });
+  }
+
+  // Parse file
+  let rows = [];
+  let errors = [];
+  try {
+    if (parseExcel) {
+      const workbook = XLSX.readFile(filePath);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+    } else {
+      // CSV
+      const data = fs.readFileSync(filePath, 'utf8');
+      const lines = data.split(/\r?\n/).filter(l => l.trim());
+      const headers = lines[0].split(',');
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',');
+        let row = {};
+        headers.forEach((h, idx) => row[h.trim()] = values[idx] !== undefined ? values[idx].trim() : null);
+        rows.push(row);
+      }
+    }
+  } catch (e) {
+    fs.unlinkSync(filePath);
+    return res.status(400).json({ error: 'Failed to parse file: ' + e.message });
+  }
+
+  // Validate columns
+  const requiredCols = schema.map(s => s.name);
+  const fileCols = rows[0] ? Object.keys(rows[0]) : [];
+  const missingCols = requiredCols.filter(c => !fileCols.includes(c));
+  const extraCols = fileCols.filter(c => !requiredCols.includes(c));
+  if (missingCols.length > 0) errors.push('Missing columns: ' + missingCols.join(', '));
+  if (extraCols.length > 0) errors.push('Extra columns: ' + extraCols.join(', '));
+
+  // Validate datatypes (check first 10 rows)
+  function checkType(val, type) {
+    if (val === null || val === undefined || val === '') return true;
+    if (type === 'int') return /^-?\d+$/.test(val) || (!isNaN(val) && Number.isInteger(Number(val)));
+    if (type === 'float') return !isNaN(val) && isFinite(val);
+    if (type === 'string') return typeof val === 'string' || typeof val === 'number';
+    if (type === 'bool') return val === true || val === false || val === 0 || val === 1 || val === '0' || val === '1' || val === 'true' || val === 'false';
+    if (type === 'date') return !isNaN(Date.parse(val));
+    return true;
+  }
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const row = rows[i];
+    schema.forEach(col => {
+      if (!checkType(row[col.name], col.type)) {
+        errors.push(`Row ${i+2} column '${col.name}' expected ${col.type}, got '${row[col.name]}'`);
+      }
+    });
+  }
+
+  // If errors, return
+  if (errors.length > 0) {
+    fs.unlinkSync(filePath);
+    return res.json({ valid: false, errors });
+  }
+
+  // Try ingesting into a temp MySQL database
+  const tempDb = 'tmp_validate_' + uuidv4().replace(/-/g, '').slice(0, 12);
+  let conn;
+  try {
+    conn = await mysql2.createConnection({
+      host: 'localhost',
+      user: 'webapp',
+      password: 'webapppass',
+      multipleStatements: true
+    });
+    await conn.query(`CREATE DATABASE \`${tempDb}\``);
+    await conn.query(`USE \`${tempDb}\``);
+    // Build CREATE TABLE
+    const colDefs = schema.map(col => {
+      if (col.type === 'int') return `\`${col.name}\` INT`;
+      if (col.type === 'float') return `\`${col.name}\` DECIMAL(20,6)`;
+      if (col.type === 'bool') return `\`${col.name}\` TINYINT`;
+      if (col.type === 'date') return `\`${col.name}\` DATE`;
+      return `\`${col.name}\` VARCHAR(255)`;
+    });
+    await conn.query(`CREATE TABLE \`${tableName}\` (${colDefs.join(', ')})`);
+    // Insert sample rows
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const row = rows[i];
+      const vals = schema.map(col => row[col.name]);
+      const placeholders = vals.map(() => '?').join(',');
+      await conn.query(`INSERT INTO \`${tableName}\` (${schema.map(c => `\`${c.name}\``).join(',')}) VALUES (${placeholders})`, vals);
+    }
+    await conn.query(`DROP DATABASE \`${tempDb}\``);
+    fs.unlinkSync(filePath);
+    return res.json({ valid: true, errors: [] });
+  } catch (e) {
+    if (conn) try { await conn.query(`DROP DATABASE \`${tempDb}\``); } catch {}
+    fs.unlinkSync(filePath);
+    return res.json({ valid: false, errors: ['MySQL ingest error: ' + e.message] });
+  }
 });

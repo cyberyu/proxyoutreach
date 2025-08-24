@@ -1,0 +1,94 @@
+# Optimized Dockerfile with pre-loaded database (following sql-dump pattern)
+# Use Ubuntu 22.04 as base image (same as original for compatibility)
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_VERSION=20.19.4
+ENV MYSQL_ROOT_PASSWORD=rootpass
+ENV MYSQL_DATABASE=proxy
+ENV MYSQL_USER=webapp
+ENV MYSQL_PASSWORD=webapppass
+
+# Update package list and install dependencies (optimized - fewer packages)
+RUN apt-get update && apt-get install -y \
+    curl \
+    mysql-server \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files first for better Docker layer caching
+COPY package*.json ./
+
+# Install app dependencies (production only for smaller size)
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code (large data files excluded by .dockerignore)
+COPY server.js ./
+COPY public/ ./public/
+COPY sql/ ./sql/
+
+# Copy the fresh SQL dump (this is the key part!)
+COPY docker/proxy_backup_fresh.sql /tmp/proxy_backup.sql
+
+# Copy pre-loaded MySQL data directory if it exists (for ultra-fast startup)
+COPY docker/mysql-data/ /var/lib/mysql/ 2>/dev/null || echo "No pre-loaded mysql-data found, will use SQL dump"
+
+# Create startup script that handles both SQL dump and pre-loaded data
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Start MySQL service\n\
+service mysql start\n\
+\n\
+# Wait for MySQL to be ready\n\
+while ! mysqladmin ping -h localhost --silent; do\n\
+    echo "Waiting for MySQL to be ready..."\n\
+    sleep 2\n\
+done\n\
+\n\
+# Check if database already exists (pre-loaded data)\n\
+if mysql -e "USE proxy; SHOW TABLES;" 2>/dev/null | grep -q account_voted; then\n\
+    echo "✅ Pre-loaded database found - skipping import"\n\
+    echo "📊 Checking data: $(mysql -e "USE proxy; SELECT COUNT(*) FROM account_voted;" -N) voted accounts"\n\
+    echo "📊 Checking data: $(mysql -e "USE proxy; SELECT COUNT(*) FROM account_unvoted;" -N) unvoted accounts"\n\
+else\n\
+    echo "📥 Importing database from SQL dump..."\n\
+    echo "📊 SQL dump size: $(du -sh /tmp/proxy_backup.sql | cut -f1)"\n\
+    mysql < /tmp/proxy_backup.sql\n\
+    echo "✅ Database imported successfully"\n\
+    echo "📊 Imported: $(mysql -e "USE proxy; SELECT COUNT(*) FROM account_voted;" -N) voted accounts"\n\
+    echo "📊 Imported: $(mysql -e "USE proxy; SELECT COUNT(*) FROM account_unvoted;" -N) unvoted accounts"\n\
+    # Clean up SQL dump after import to save space\n\
+    rm -f /tmp/proxy_backup.sql\n\
+fi\n\
+\n\
+# Start the Node.js application\n\
+echo "🚀 Starting Node.js application..."\n\
+cd /usr/src/app\n\
+exec node server.js\n\
+' > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
+
+# Create uploads directory
+RUN mkdir -p uploads && chmod 777 uploads
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/ || exit 1
+
+# Start the application
+CMD ["/usr/local/bin/start.sh"]
