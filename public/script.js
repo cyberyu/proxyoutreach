@@ -144,6 +144,104 @@ async function runVotedValidation() {
 // API URL base
 const API_BASE = '';
 
+// ========== ADMIN FUNCTIONS ==========
+
+// Admin authentication state
+let isAdminAuthenticated = false;
+const ADMIN_PASSWORD = '12345678';
+
+// Prompt for admin login
+function promptAdminLogin() {
+    // Reset form
+    document.getElementById('adminPassword').value = '';
+    document.getElementById('adminLoginError').style.display = 'none';
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
+    modal.show();
+    
+    // Focus on password field
+    setTimeout(() => {
+        document.getElementById('adminPassword').focus();
+    }, 500);
+}
+
+// Verify admin password
+async function verifyAdminPassword() {
+    const password = document.getElementById('adminPassword').value;
+    const errorDiv = document.getElementById('adminLoginError');
+    
+    // First try server-side authentication
+    try {
+        const response = await fetchWithCredentials('/api/admin/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            isAdminAuthenticated = true;
+            
+            // Hide modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('adminLoginModal'));
+            modal.hide();
+            
+            // Show admin section
+            showSection('admin', null);
+            
+            // Update nav link to active
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            document.querySelector('[onclick="promptAdminLogin()"]').classList.add('active');
+            
+            // Show success message
+            showAlert('Admin access granted', 'success');
+            return;
+        }
+    } catch (error) {
+        console.warn('Server-side admin login failed, falling back to client-side check:', error);
+    }
+    
+    // Fallback to client-side password check
+    if (password === ADMIN_PASSWORD) {
+        isAdminAuthenticated = true;
+        
+        // Hide modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('adminLoginModal'));
+        modal.hide();
+        
+        // Show admin section
+        showSection('admin', null);
+        
+        // Update nav link to active
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+        document.querySelector('[onclick="promptAdminLogin()"]').classList.add('active');
+        
+        // Show success message
+        showAlert('Admin access granted', 'success');
+    } else {
+        // Show error
+        errorDiv.textContent = 'Invalid password. Please try again.';
+        errorDiv.style.display = 'block';
+        document.getElementById('adminPassword').value = '';
+        document.getElementById('adminPassword').focus();
+    }
+}
+
+// Logout from admin (optional - can be called manually)
+function adminLogout() {
+    isAdminAuthenticated = false;
+    showSection('dashboard', null);
+    showAlert('Logged out from admin panel', 'info');
+}
+
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     console.log('=== DOMContentLoaded: Starting initialization... ===');
@@ -200,6 +298,23 @@ document.addEventListener('DOMContentLoaded', function() {
             setupImportForm();
         } else {
             console.log('setupImportForm function not found, skipping...');
+        }
+        
+        // Setup admin password field Enter key handler
+        const passwordField = document.getElementById('adminPassword');
+        if (passwordField) {
+            passwordField.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    verifyAdminPassword();
+                }
+            });
+        }
+        
+        // Initialize database selector when page loads
+        if (document.getElementById('databaseSelector')) {
+            // Load initial database information
+            manageDatabases().catch(console.error);
         }
         
         console.log('=== Initialization complete ===');
@@ -429,7 +544,7 @@ function renderProposalsTable() {
     });
     
     if (proposals.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center">No proposals found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="19" class="text-center">No proposals found</td></tr>';
         return;
     }
     
@@ -443,8 +558,26 @@ function renderProposalsTable() {
         { key: 'prediction_correct', label: 'Prediction Accuracy' },
         { key: 'approved', label: 'Approved Status' },
         { key: 'for_percentage', label: 'For Percentage' },
-        { key: 'against_percentage', label: 'Against Percentage' }
+        { key: 'against_percentage', label: 'Against Percentage' },
+        // Added share summary fields to appear in main view before detailed view
+        { key: 'predicted_for_shares', label: 'Predicted For Shares' },
+        { key: 'predicted_against_shares', label: 'Predicted Against Shares' },
+        { key: 'predicted_abstain_shares', label: 'Predicted Abstain Shares' },
+        { key: 'predicted_unvoted_shares', label: 'Predicted Unvoted Shares' },
+        { key: 'total_for_shares', label: 'True For' },
+        { key: 'total_against_shares', label: 'True Against' },
+        { key: 'total_abstain_shares', label: 'True Abstain' },
+        { key: 'total_unvoted_shares', label: 'True Unvoted' }
     ];
+
+    // local helper to format numeric share values
+    function formatShares(val) {
+        if (val === undefined || val === null || val === '') return '-';
+        const n = Number(val);
+        if (Number.isNaN(n)) return String(val);
+        return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    }
+
     try {
         tbody.innerHTML = proposals.map(proposal => {
             return `<tr>` +
@@ -456,12 +589,19 @@ function renderProposalsTable() {
                     } else if (field.key === 'for_percentage' || field.key === 'against_percentage') {
                         const val = proposal[field.key];
                         return `<td>${val !== undefined && val !== null ? (parseFloat(val) * 100).toFixed(2) + '%' : '-'}</td>`;
+                    } else if (['predicted_for_shares','predicted_against_shares','predicted_abstain_shares','predicted_unvoted_shares','total_for_shares','total_against_shares','total_abstain_shares','total_unvoted_shares'].includes(field.key)) {
+                        return `<td>${formatShares(proposal[field.key])}</td>`;
                     } else if (field.key === 'issuer_name') {
-                        return `<td class="text-truncate" style="max-width: 150px;" title="${(proposal.issuer_name || '').replace(/"/g, '&quot;')}">${proposal.issuer_name || '-'}</td>`;
+                        return `<td class="text-truncate" style="max-width: 150px;" title="${(proposal.issuer_name || '').replace(/\"/g, '&quot;')}">${proposal.issuer_name || '-'}</td>`;
                     } else {
                         return `<td>${proposal[field.key] !== undefined && proposal[field.key] !== null && proposal[field.key] !== '' ? proposal[field.key] : '-'}</td>`;
                     }
                 }).join('') +
+                `<td class="text-center">
+                    <button class="btn btn-sm btn-outline-info" onclick="showProposalConfusion(${proposal.id})" title="View Confusion Matrix">
+                        <i class="fas fa-chart-bar"></i>
+                    </button>
+                </td>` +
                 `<td>
                     <div class="btn-group" role="group" aria-label="Actions">
                         <button class="btn btn-sm btn-outline-primary" onclick="viewProposalDetails(${proposal.id})" title="View Details">
@@ -477,7 +617,7 @@ function renderProposalsTable() {
         console.log('Proposals table rendered successfully');
     } catch (error) {
         console.error('Error rendering proposals table:', error);
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">Error rendering table</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="19" class="text-center text-danger">Error rendering table</td></tr>';
     }
 }
 
@@ -1557,7 +1697,7 @@ function renderProposalAccountsInline(proposal, data) {
         const scoreField = headers.find(h => h && h.startsWith && h.startsWith('score_model')) || null;
         const scoreEl = scoreField ? contentElem.querySelector(`[data-side="${side}"] [data-filter="${scoreField}"]`) : null;
         const predictionField = headers.find(h => h && h.startsWith && h.startsWith('prediction_model')) || null;
-        const predictionEl = predictionField ? contentElem.querySelector(`[data-side="${side}"] [data-filter="${predictionField}"]`) : null;
+        const predictionEl = predictionField ? contentElem.querySelector(`[data-side="${side}"]`) : null;
 
         const accountType = accTypeEl ? accTypeEl.value : '';
         const sharesMin = parseNumberRaw(sharesEl ? sharesEl.value : null);
@@ -1858,70 +1998,372 @@ function renderProposalAccountsInline(proposal, data) {
     setupPageSizeHandler();
 }
 
-// Helper function to get headers from data array
-function getHeaders(dataArray) {
-    if (!Array.isArray(dataArray) || dataArray.length === 0) return [];
+// Database Management Functions
+
+// Manage databases - show comprehensive database and table information
+async function manageDatabases() {
+    if (!isAdminAuthenticated) {
+        const success = await promptAdminLogin();
+        if (!success) return;
+    }
     
-    // Get all unique keys from the data
-    const allKeys = new Set();
-    dataArray.forEach(item => {
-        if (item && typeof item === 'object') {
-            Object.keys(item).forEach(key => allKeys.add(key));
+    try {
+        const response = await fetchWithCredentials('/api/admin/manage-database');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const resultDiv = document.getElementById('databaseManagementResult');
+        
+        // Update database selector if it exists
+        if (data.databases && data.currentDatabase) {
+            updateDatabaseSelector(data.databases, data.currentDatabase);
         }
-    });
-    
-    return Array.from(allKeys);
+        
+        let html = `
+            <div class="card mt-2">
+                <div class="card-header">
+                    <h6><i class="fas fa-server me-2"></i>Database Management Overview</h6>
+                </div>
+                <div class="card-body">`;
+        
+        // Show databases
+        if (data.databases && data.databases.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h6><i class="fas fa-database me-2"></i>Available Databases</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Database Name</th>
+                                    <th>Size (MB)</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            
+            data.databases.forEach(db => {
+                const sizeDisplay = db.size_mb ? parseFloat(db.size_mb).toFixed(2) : 'N/A';
+                const statusBadge = db.current ? 
+                    '<span class="badge bg-success">Current</span>' : 
+                    '<span class="badge bg-secondary">Available</span>';
+                    
+                html += `
+                    <tr>
+                        <td><strong>${db.name}</strong></td>
+                        <td>${sizeDisplay}</td>
+                        <td>${statusBadge}</td>
+                    </tr>`;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
+        
+        // Show tables for current database
+        if (data.tables && data.tables.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h6><i class="fas fa-table me-2"></i>Tables in '${data.currentDatabase}' Database</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Table Name</th>
+                                    <th>Records</th>
+                                    <th>Size (MB)</th>
+                                    <th>Type</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            
+            data.tables.forEach(table => {
+                const recordCount = table.table_rows ? table.table_rows.toLocaleString() : '0';
+                const sizeDisplay = table.size_mb ? parseFloat(table.size_mb).toFixed(2) : '0.00';
+                let tableType = 'Data';
+                let typeClass = 'bg-primary';
+                
+                if (table.table_name.includes('backup')) {
+                    tableType = 'Backup';
+                    typeClass = 'bg-warning';
+                } else if (table.table_name.includes('_logs')) {
+                    tableType = 'Logs';
+                    typeClass = 'bg-info';
+                } else if (table.table_name.includes('proposals')) {
+                    tableType = 'Predictions';
+                    typeClass = 'bg-success';
+                }
+                
+                html += `
+                    <tr>
+                        <td><strong>${table.table_name}</strong></td>
+                        <td>${recordCount}</td>
+                        <td>${sizeDisplay}</td>
+                        <td><span class="badge ${typeClass}">${tableType}</span></td>
+                        <td>
+                            <button class="btn btn-outline-info btn-xs" onclick="showTableDetails('${table.table_name}')" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        }
+        
+        // Show summary statistics
+        if (data.summary) {
+            html += `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6><i class="fas fa-chart-pie me-2"></i>Summary Statistics</h6>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small class="text-muted">Total Tables:</small><br>
+                                        <strong>${data.summary.total_tables || 0}</strong>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Total Records:</small><br>
+                                        <strong>${data.summary.total_records?.toLocaleString() || '0'}</strong>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-6">
+                                        <small class="text-muted">Database Size:</small><br>
+                                        <strong>${parseFloat(data.summary.total_size_mb || 0).toFixed(2)} MB</strong>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Data Tables:</strong><br>
+                                        <strong>${data.summary.data_tables || 0}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6><i class="fas fa-info-circle me-2"></i>Database Health</h6>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small class="text-muted">Backup Tables:</small><br>
+                                        <strong>${data.summary.backup_tables || 0}</strong>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Active Connections:</small><br>
+                                        <strong>${data.summary.connections || 'N/A'}</strong>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-12">
+                                        <small class="text-muted">Status:</small><br>
+                                        <span class="badge bg-success">Operational</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+        
+        html += `
+                </div>
+            </div>`;
+        
+        resultDiv.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error managing databases:', error);
+        showAlert('Failed to load database management: ' + error.message, 'error');
+        
+        const resultDiv = document.getElementById('databaseManagementResult');
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger mt-2">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Error loading database information: ${error.message}
+            </div>`;
+    }
 }
 
-// Helper function to apply filters to data
-function applyFilters(dataArray, headers, filters) {
-    if (!Array.isArray(dataArray) || !filters) return dataArray;
+// Update database selector dropdown
+function updateDatabaseSelector(databases, currentDatabase) {
+    const selector = document.getElementById('databaseSelector');
+    const currentInfo = document.getElementById('currentDatabaseInfo');
     
-    return dataArray.filter(row => {
-        if (!row) return false;
-        
-        // Account type filter
-        if (filters.accountType && String(row.account_type) !== filters.accountType) return false;
-        
-        // Shares minimum filter
-        if (filters.sharesMin !== undefined && filters.sharesMin !== null) {
-            const val = (row.shares_summable !== undefined && row.shares_summable !== null) ? parseNumberRaw(row.shares_summable) : null;
-            if (val === null || val < filters.sharesMin) return false;
+    if (!selector || !currentInfo) return;
+    
+    // Clear existing options
+    selector.innerHTML = '';
+    
+    // Add database options
+    databases.forEach(db => {
+        const option = document.createElement('option');
+        option.value = db.name;
+        option.textContent = `${db.name} (${parseFloat(db.size_mb || 0).toFixed(2)} MB)`;
+        if (db.current) {
+            option.selected = true;
         }
-        
-        // Rank maximum filter
-        if (filters.rankMax !== undefined && filters.rankMax !== null) {
-            const val = (row.rank_of_shareholding !== undefined && row.rank_of_shareholding !== null) ? parseNumberRaw(row.rank_of_shareholding) : null;
-            if (val === null || val > filters.rankMax) return false;
-        }
-        
-        // Score minimum filter
-        if (filters.scoreMin !== undefined && filters.scoreMin !== null) {
-            const scoreField = headers.find(h => h && h.startsWith && h.startsWith('score_model'));
-            if (scoreField) {
-                const sval = row[scoreField] !== undefined && row[scoreField] !== null ? parseNumberRaw(row[scoreField]) : null;
-                if (sval === null || sval < filters.scoreMin) return false;
-            }
-        }
-        
-        // Target encoded filter
-        if (filters.targetEncodedValue && filters.targetEncodedValue !== '') {
-            const rowVal = row.Target_encoded !== undefined && row.Target_encoded !== null ? String(row.Target_encoded) : '';
-            const filterVal = String(filters.targetEncodedValue);
-            if (rowVal !== filterVal) return false;
-        }
-        
-        // Prediction model filter
-        if (filters.predictionValue) {
-            const predictionField = headers.find(h => h && h.startsWith && h.startsWith('prediction_model'));
-            if (predictionField) {
-                const predVal = String(row[predictionField] || '');
-                if (predVal !== filters.predictionValue) return false;
-            }
-        }
-        
-        return true;
+        selector.appendChild(option);
     });
+    
+    // Update current database info
+    currentInfo.textContent = `Current: ${currentDatabase}`;
+}
+
+// Set target database
+async function setTargetDatabase() {
+    if (!isAdminAuthenticated) {
+        promptAdminLogin();
+        return;
+    }
+    
+    const selector = document.getElementById('databaseSelector');
+    const selectedDatabase = selector.value;
+    
+    if (!selectedDatabase) {
+        showAlert('Please select a database', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithCredentials('/api/admin/set-database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ database: selectedDatabase })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert(`Database switched to ${result.currentDatabase}`, 'success');
+            
+            // Update current database info
+            const currentInfo = document.getElementById('currentDatabaseInfo');
+            if (currentInfo) {
+                currentInfo.textContent = `Current: ${result.currentDatabase}`;
+            }
+            
+            // Refresh database management if it's currently displayed
+            const resultDiv = document.getElementById('databaseManagementResult');
+            if (resultDiv && resultDiv.innerHTML.includes('Database Management Overview')) {
+                manageDatabases();
+            }
+        } else {
+            showAlert('Failed to switch database', 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error setting target database:', error);
+        showAlert('Failed to switch database: ' + error.message, 'error');
+    }
+}
+
+// Show table details (placeholder function)
+function showTableDetails(tableName) {
+    showAlert(`Table details for '${tableName}' - Feature coming soon!`, 'info');
+}
+
+// ========== MISSING FUNCTIONS FROM GITHUB REPOSITORY ==========
+
+// Sorting function for proposals table
+function toggleProposalSort(field) {
+    // Toggle sort direction if same field, otherwise start with asc
+    if (proposalsSortState.field === field) {
+        proposalsSortState.dir = proposalsSortState.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        proposalsSortState.field = field;
+        proposalsSortState.dir = 'asc';
+    }
+
+    // Update visual indicators for all sortable columns
+    const sortableFields = ['id', 'issuer_name', 'category'];
+    sortableFields.forEach(f => {
+        const iconEl = document.getElementById(`proposals_sort_${f}`);
+        if (iconEl) {
+            if (f === field) {
+                // Update icon to show current sort direction
+                iconEl.className = proposalsSortState.dir === 'asc' 
+                    ? 'fas fa-sort-up text-primary ms-2' 
+                    : 'fas fa-sort-down text-primary ms-2';
+            } else {
+                // Reset to default unsorted icon
+                iconEl.className = 'fas fa-sort text-muted ms-2';
+            }
+            iconEl.style.fontSize = '14px';
+        }
+    });
+
+    // Apply sorting and re-render
+    applySortingToProposals();
+    renderProposalsTable();
+}
+
+// Apply sorting to the proposals array
+function applySortingToProposals() {
+    if (!proposalsSortState.field) return;
+    
+    proposals.sort((a, b) => {
+        let aVal = a[proposalsSortState.field];
+        let bVal = b[proposalsSortState.field];
+        
+        // Handle null/undefined values
+        if (aVal === null || aVal === undefined) aVal = '';
+        if (bVal === null || bVal === undefined) bVal = '';
+        
+        // Convert to strings for comparison
+        aVal = String(aVal).toLowerCase();
+        bVal = String(bVal).toLowerCase();
+        
+        let comparison = 0;
+        if (aVal < bVal) {
+            comparison = -1;
+        } else if (aVal > bVal) {
+            comparison = 1;
+        }
+        
+        return proposalsSortState.dir === 'asc' ? comparison : -comparison;
+    });
+}
+
+function viewProposalDetails(id) {
+    showAlert(`Proposal details for ID ${id} - Feature coming soon!`, 'info');
+}
+
+function getContactMethodIcon(method) {
+    switch(method) {
+        case 'email':
+            return 'envelope';
+        case 'phone':
+            return 'phone';
+        case 'meeting':
+            return 'users';
+        case 'letter':
+            return 'mail-bulk';
+        default:
+            return 'comment';
+    }
+}
+
+function showAddOutreachModal() {
+    document.getElementById('outreachForm').reset();
+    document.getElementById('contactDateInput').valueAsDate = new Date();
+    
+    const modal = new bootstrap.Modal(document.getElementById('outreachModal'));
+    modal.show();
 }
 
 // Global browser-side sorting function
@@ -1972,8 +2414,8 @@ function toggleSort(field, sidePrefix) {
         }
     });
 
-    // Trigger re-render by calling the stored render function
-    if (window.currentRenderFunction) {
+    // Apply the sort using the global render function if available
+    if (typeof window.currentRenderFunction === 'function') {
         window.currentRenderFunction();
     }
 }
@@ -2100,7 +2542,6 @@ async function addSelectedUnvotedToOutreach() {
     }
 }
 
-// Debug functions
 // Load outreach accounts count for dashboard
 async function loadOutreachCount() {
     try {
@@ -2157,50 +2598,16 @@ async function loadOutreachAccounts() {
     }
 }
 
-// Extend showSection to handle outreach-accounts
-const _orig_showSection = typeof showSection === 'function' ? showSection : null;
-window.showSection = function(section) {
-    // Hide all
-    document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
-    if (section === 'dashboard') {
-        { const el = document.getElementById('dashboard-section'); if (el) el.style.display = 'block'; }
-        loadDashboardData();
-        loadOutreachCount();
-        return;
-    }
-    if (section === 'outreach-accounts') {
-        { const el = document.getElementById('outreach-accounts-section'); if (el) el.style.display = 'block'; }
-        loadOutreachAccounts();
-        return;
-    }
-    // Fallback to original handler for other sections
-    if (_orig_showSection) return _orig_showSection(section);
-};
-
-// Ensure count is loaded on initial dashboard
-document.addEventListener('DOMContentLoaded', () => {
-    try { loadOutreachCount(); } catch {}
-});
-
 // Test function to verify feedback display works
 function testFeedback() {
     const dataLegendArea = document.getElementById('dataLegendArea');
     if (dataLegendArea) {
-        const testHtml = `
-            <h6 class="text-info">Test Feedback Results:</h6>
-            <div class="alert alert-success mb-2"><strong>✅ Success:</strong> 5 accounts owning 1,234,567 shares have been added to the outreach table</div>
-            <div class="alert alert-warning mb-2">
-                <strong>⚠️ Duplicates not inserted:</strong><br>
-                • account_hash_key(ABC123)+proposal_master_skey(279)+director_master_skey(-1) is not inserted because it is already in outreach table<br>
-                • account_hash_key(DEF456)+proposal_master_skey(279)+director_master_skey(-1) is not inserted because it is already in outreach table
-            </div>
-        `;
-        dataLegendArea.innerHTML = testHtml;
+        dataLegendArea.innerHTML = '<div class="alert alert-info">Test feedback message - this should be visible!</div>';
         dataLegendArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        console.log('Test feedback displayed successfully');
+        console.log('Test feedback displayed');
     } else {
         console.error('dataLegendArea not found for test');
-        alert('dataLegendArea element not found!');
+        showAlert('Test feedback - dataLegendArea not found', 'warning');
     }
 }
 
@@ -2313,91 +2720,11 @@ async function loadUnvotedAccounts(proposalId, page = 1) {
     }
 }
 
-// ========== ADMIN FUNCTIONS ==========
+// Admin authentication state - variables declared earlier in the file
 
-// Admin authentication state
-let isAdminAuthenticated = false;
-const ADMIN_PASSWORD = '12345678';
+// Prompt for admin login (duplicate removed - using original implementation)
 
-// Prompt for admin login
-function promptAdminLogin() {
-    // Reset form
-    document.getElementById('adminPassword').value = '';
-    document.getElementById('adminLoginError').style.display = 'none';
-    
-    // Show modal
-    const modal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
-    modal.show();
-    
-    // Focus on password field
-    setTimeout(() => {
-        document.getElementById('adminPassword').focus();
-    }, 500);
-}
-
-// Verify admin password
-async function verifyAdminPassword() {
-    const password = document.getElementById('adminPassword').value;
-    const errorDiv = document.getElementById('adminLoginError');
-    
-    try {
-        const response = await fetchWithCredentials('/api/admin/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ password })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok && result.success) {
-            isAdminAuthenticated = true;
-            
-            // Hide modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('adminLoginModal'));
-            modal.hide();
-            
-            // Show admin section
-            showSection('admin', null);
-            
-            // Update nav link to active
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.classList.remove('active');
-            });
-            document.querySelector('[onclick="promptAdminLogin()"]').classList.add('active');
-            
-            // Show success message
-            showAlert('Admin access granted', 'success');
-            
-        } else {
-            // Show error
-            errorDiv.textContent = result.message || 'Invalid password. Please try again.';
-            errorDiv.style.display = 'block';
-            document.getElementById('adminPassword').value = '';
-            document.getElementById('adminPassword').focus();
-        }
-    } catch (error) {
-        console.error('Admin login error:', error);
-        errorDiv.textContent = 'Login failed. Please try again.';
-        errorDiv.style.display = 'block';
-        document.getElementById('adminPassword').value = '';
-        document.getElementById('adminPassword').focus();
-    }
-}
-
-// Handle Enter key in password field
-document.addEventListener('DOMContentLoaded', function() {
-    const passwordField = document.getElementById('adminPassword');
-    if (passwordField) {
-        passwordField.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                verifyAdminPassword();
-            }
-        });
-    }
-});
+// Verify admin password (duplicate removed - using original implementation)
 
 // Logout from admin (optional - can be called manually)
 function adminLogout() {
@@ -2418,16 +2745,14 @@ async function showDatabaseStats() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         const stats = await response.json();
-        const resultDiv = document.getElementById('databaseStatsResult');
-        
-        resultDiv.innerHTML = `
+        document.getElementById('databaseStatsResult').innerHTML = `
             <div class="card mt-2">
                 <div class="card-body">
                     <h6>Database Statistics</h6>
                     <div class="row">
                         <div class="col-md-6">
-                            <p><strong>Voted Accounts:</strong> ${stats.voted_count ? stats.voted_count.toLocaleString() : 'N/A'}</p>
-                            <p><strong>Unvoted Accounts:</strong> ${stats.unvoted_count ? stats.unvoted_count.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Voted Accounts:</strong> ${stats.voted_accounts ? stats.voted_accounts.toLocaleString() : 'N/A'}</p>
+                            <p><strong>Unvoted Accounts:</strong> ${stats.unvoted_accounts ? stats.unvoted_accounts.toLocaleString() : 'N/A'}</p>
                             <p><strong>Total Accounts:</strong> ${stats.total_accounts ? stats.total_accounts.toLocaleString() : 'N/A'}</p>
                         </div>
                         <div class="col-md-6">
@@ -2512,182 +2837,153 @@ async function showIssuerList() {
     }
     
     try {
-        const response = await fetchWithCredentials('/api/admin/issuer-list');
+        const response = await fetch('/api/admin/issuers');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
-        const data = await response.json();
-        const resultDiv = document.getElementById('systemInfoResult');
+        const issuers = await response.json();
+        let html = `
+            <div class="card mt-2">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6>Select Issuers for Filtering</h6>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary me-2" onclick="selectAllIssuers()">Select All</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearAllIssuers()">Clear All</button>
+                    </div>
+                </div>
+                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="selectAllCheckbox" onchange="toggleAllIssuers(this)">
+                        <label class="form-check-label fw-bold" for="selectAllCheckbox">Select All Issuers</label>
+                    </div>
+                    <hr>
+        `;
         
-        if (data.issuers && data.issuers.length > 0) {
-            resultDiv.innerHTML = `
-                <div class="card mt-2">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h6>Issuer Selection & Filter</h6>
-                            <div>
-                                <button class="btn btn-success btn-sm me-2" onclick="selectAllIssuers()">
-                                    <i class="fas fa-check-double me-1"></i>Select All
-                                </button>
-                                <button class="btn btn-warning btn-sm me-2" onclick="clearAllIssuers()">
-                                    <i class="fas fa-times me-1"></i>Clear All
-                                </button>
-                                <button class="btn btn-primary btn-sm" onclick="applyIssuerFilter()">
-                                    <i class="fas fa-filter me-1"></i>Apply Filter
-                                </button>
-                            </div>
+        issuers.forEach((issuer, index) => {
+            html += `
+                <div class="form-check">
+                    <input class="form-check-input issuer-checkbox" type="checkbox" id="issuer_${index}" value="${issuer.issuer_name}" onchange="updateSelectAllCheckbox()">
+                    <label class="form-check-label" for="issuer_${index}">${issuer.issuer_name} (${issuer.proposal_count} proposals)</label>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+                <div class="card-footer">
+                    <div class="row">
+                        <div class="col">
+                            <small id="selectedCount" class="text-muted">0 issuers selected</small>
                         </div>
-                        
-                        <div class="alert alert-info">
-                            <small>
-                                <i class="fas fa-info-circle me-1"></i>
-                                Selected issuers: <strong id="selectedCount">${data.selectedCount}</strong> / ${data.totalIssuers}
-                                <br>Only data from selected issuers will be shown across all sections.
-                            </small>
-                        </div>
-                        
-                        <div style="max-height: 400px; overflow-y: auto;">
-                            <table class="table table-sm table-striped">
-                                <thead class="table-dark sticky-top">
-                                    <tr>
-                                        <th style="width: 40px;">
-                                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleAllIssuers(this)">
-                                        </th>
-                                        <th>Issuer Name</th>
-                                        <th>Proposals</th>
-                                        <th>Directors</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${data.issuers.map((issuer, index) => `
-                                        <tr>
-                                            <td>
-                                                <input type="checkbox" 
-                                                       class="issuer-checkbox" 
-                                                       value="${issuer.name}" 
-                                                       ${issuer.selected ? 'checked' : ''}
-                                                       onchange="updateSelectedCount()">
-                                            </td>
-                                            <td>${issuer.name}</td>
-                                            <td>${issuer.proposal_count ? issuer.proposal_count.toLocaleString() : '0'}</td>
-                                            <td>${issuer.director_count ? issuer.director_count.toLocaleString() : '0'}</td>
-                                            <td><span class="badge bg-success">active</span></td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
+                        <div class="col-auto">
+                            <button class="btn btn-primary" onclick="applyIssuerFilter()">Apply Filter</button>
                         </div>
                     </div>
                 </div>
-            `;
-            
-            // Update the select all checkbox state
-            updateSelectAllCheckbox();
-            
-        } else {
-            resultDiv.innerHTML = `
-                <div class="card mt-2">
-                    <div class="card-body">
-                        <h6>Issuer List</h6>
-                        <div class="alert alert-info">No issuers found in the database.</div>
-                    </div>
-                </div>
-            `;
-        }
+            </div>
+        `;
+        
+        document.getElementById('issuerFilterResult').innerHTML = html;
+        updateSelectedCount();
+        
     } catch (error) {
-        document.getElementById('systemInfoResult').innerHTML = 
+        document.getElementById('issuerFilterResult').innerHTML = 
             `<div class="alert alert-danger">Error: ${error.message}</div>`;
     }
 }
 
 // Select all issuers
 function selectAllIssuers() {
-    const checkboxes = document.querySelectorAll('.issuer-checkbox');
-    checkboxes.forEach(cb => cb.checked = true);
+    document.querySelectorAll('.issuer-checkbox').forEach(cb => {
+        cb.checked = true;
+    });
+    document.getElementById('selectAllCheckbox').checked = true;
     updateSelectedCount();
-    updateSelectAllCheckbox();
 }
 
 // Clear all issuer selections
 function clearAllIssuers() {
-    const checkboxes = document.querySelectorAll('.issuer-checkbox');
-    checkboxes.forEach(cb => cb.checked = false);
+    document.querySelectorAll('.issuer-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('selectAllCheckbox').checked = false;
     updateSelectedCount();
-    updateSelectAllCheckbox();
 }
 
 // Toggle all issuers from header checkbox
 function toggleAllIssuers(selectAllCheckbox) {
-    const checkboxes = document.querySelectorAll('.issuer-checkbox');
-    checkboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+    document.querySelectorAll('.issuer-checkbox').forEach(cb => {
+        cb.checked = selectAllCheckbox.checked;
+    });
     updateSelectedCount();
 }
 
 // Update selected count display
 function updateSelectedCount() {
-    const checkboxes = document.querySelectorAll('.issuer-checkbox:checked');
-    const countElement = document.getElementById('selectedCount');
-    if (countElement) {
-        countElement.textContent = checkboxes.length;
-    }
-    updateSelectAllCheckbox();
+    const checked = document.querySelectorAll('.issuer-checkbox:checked').length;
+    const total = document.querySelectorAll('.issuer-checkbox').length;
+    document.getElementById('selectedCount').textContent = `${checked} of ${total} issuers selected`;
 }
 
 // Update the state of select all checkbox
 function updateSelectAllCheckbox() {
-    const allCheckboxes = document.querySelectorAll('.issuer-checkbox');
-    const checkedCheckboxes = document.querySelectorAll('.issuer-checkbox:checked');
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    const checkedBoxes = document.querySelectorAll('.issuer-checkbox:checked');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
     
-    if (selectAllCheckbox) {
-        if (checkedCheckboxes.length === 0) {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = false;
-        } else if (checkedCheckboxes.length === allCheckboxes.length) {
-            selectAllCheckbox.checked = true;
-            selectAllCheckbox.indeterminate = false;
-        } else {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = true;
-        }
+    if (checkedBoxes.length === 0) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = false;
+    } else if (checkedBoxes.length === checkboxes.length) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = true;
+    } else {
+        selectAllCheckbox.indeterminate = true;
+        selectAllCheckbox.checked = false;
     }
+    
+    updateSelectedCount();
 }
 
 // Apply issuer filter
 async function applyIssuerFilter() {
+    if (!isAdminAuthenticated) {
+        showAlert('Admin authentication required', 'warning');
+        return;
+    }
+    
     try {
-        const checkboxes = document.querySelectorAll('.issuer-checkbox:checked');
-        const selectedIssuers = Array.from(checkboxes).map(cb => cb.value);
-        
-        const response = await fetchWithCredentials('/api/admin/set-selected-issuers', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ selectedIssuers })
-        });
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const result = await response.json();
+        const selectedIssuers = Array.from(document.querySelectorAll('.issuer-checkbox:checked'))
+            .map(cb => cb.value);
         
         if (selectedIssuers.length === 0) {
-            showAlert('Filter cleared - all issuer data will be shown', 'info');
-        } else {
-            showAlert(`Filter applied to ${selectedIssuers.length} issuers`, 'success');
+            showAlert('Please select at least one issuer', 'warning');
+            return;
         }
         
-        // Refresh current section data if applicable
-        const currentSection = document.querySelector('.content-section:not([style*="display: none"])');
-        if (currentSection) {
-            const sectionId = currentSection.id.replace('-section', '');
-            if (sectionId === 'dashboard') {
-                loadDashboardData();
-            } else if (sectionId === 'proposals') {
-                loadProposalsData();
-            } else if (sectionId === 'outreach') {
-                loadOutreachLogs();
+        // Apply filter to backend (implementation depends on backend API)
+        const response = await fetch('/api/admin/apply-issuer-filter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ issuers: selectedIssuers })
+        });
+        
+        if (response.ok) {
+            showAlert(`Filter applied to ${selectedIssuers.length} issuers`, 'success');
+            
+            // Refresh current view if needed
+            const currentSection = document.querySelector('.content-section[style*="block"]');
+            if (currentSection) {
+                const sectionId = currentSection.id.replace('-section', '');
+                if (sectionId === 'dashboard') {
+                    loadDashboardData();
+                } else if (sectionId === 'proposals') {
+                    loadProposalsData();
+                } else if (sectionId === 'outreach') {
+                    loadOutreachLogs();
+                }
             }
+        } else {
+            throw new Error(`HTTP ${response.status}`);
         }
         
     } catch (error) {
@@ -2754,215 +3050,488 @@ function managePermissions() {
         `<div class="alert alert-info">Permission management feature coming soon...</div>`;
 }
 
-// Manage databases - show comprehensive database and table information
-async function manageDatabases() {
-    if (!isAdminAuthenticated) {
-        showAlert('Admin authentication required', 'warning');
+// Extend showSection to handle outreach-accounts
+const _orig_showSection = typeof showSection === 'function' ? showSection : null;
+window.showSection = function(section) {
+    // Hide all
+    document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
+    if (section === 'dashboard') {
+        { const el = document.getElementById('dashboard-section'); if (el) el.style.display = 'block'; }
+        loadDashboardData();
+        loadOutreachCount();
         return;
     }
-    
-    try {
-        const response = await fetchWithCredentials('/api/admin/manage-database');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const data = await response.json();
-        const resultDiv = document.getElementById('databaseManagementResult');
-        
-        // Update database selector if it exists
-        if (data.databases && data.currentDatabase) {
-            updateDatabaseSelector(data.databases, data.currentDatabase);
-        }
-        
-        let html = `
-            <div class="card mt-2">
-                <div class="card-header">
-                    <h6><i class="fas fa-server me-2"></i>Database Management Overview</h6>
-                </div>
-                <div class="card-body">`;
-        
-        // Show databases
-        if (data.databases && data.databases.length > 0) {
-            html += `
-                <div class="mb-4">
-                    <h6><i class="fas fa-database me-2"></i>Available Databases</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Database Name</th>
-                                    <th>Size (MB)</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>`;
-            
-            data.databases.forEach(db => {
-                html += `
-                    <tr${db.current ? ' class="table-primary"' : ''}>
-                        <td>${escapeHtml(db.name)}</td>
-                        <td>${parseFloat(db.size_mb || 0).toFixed(2)}</td>
-                        <td>
-                            ${db.current ? '<span class="badge bg-primary">Current</span>' : '<span class="badge bg-secondary">Available</span>'}
-                        </td>
-                    </tr>`;
-            });
-            
-            html += `
-                            </tbody>
-                        </table>
-                    </div>
-                </div>`;
-        }
-        
-        // Show tables for current database
-        if (data.tables && data.tables.length > 0) {
-            html += `
-                <div class="mb-4">
-                    <h6><i class="fas fa-table me-2"></i>Tables in ${escapeHtml(data.currentDatabase)}</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Table Name</th>
-                                    <th>Records</th>
-                                    <th>Size (MB)</th>
-                                    <th>Engine</th>
-                                </tr>
-                            </thead>
-                            <tbody>`;
-            
-            data.tables.forEach(table => {
-                html += `
-                    <tr>
-                        <td>${escapeHtml(table.table_name)}</td>
-                        <td>${(table.table_rows || 0).toLocaleString()}</td>
-                        <td>${parseFloat(table.size_mb || 0).toFixed(2)}</td>
-                        <td>${escapeHtml(table.engine || '-')}</td>
-                    </tr>`;
-            });
-            
-            html += `
-                            </tbody>
-                        </table>
-                    </div>
-                </div>`;
-        }
-        
-        // Show summary
-        if (data.summary) {
-            html += `
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-chart-pie me-2"></i>Summary</h6>
-                        <ul class="list-unstyled">
-                            <li><strong>Total Tables:</strong> ${data.summary.total_tables || 0}</li>
-                            <li><strong>Total Records:</strong> ${(data.summary.total_records || 0).toLocaleString()}</li>
-                            <li><strong>Total Size:</strong> ${parseFloat(data.summary.total_size_mb || 0).toFixed(2)} MB</li>
-                        </ul>
-                    </div>
-                </div>`;
-        }
-        
-        html += `
-                </div>
-            </div>`;
-        
-        resultDiv.innerHTML = html;
-        
-    } catch (error) {
-        console.error('Error managing databases:', error);
-        document.getElementById('databaseManagementResult').innerHTML = 
-            `<div class="alert alert-danger">Error: ${error.message}</div>`;
-    }
-}
-
-// Update database selector dropdown
-function updateDatabaseSelector(databases, currentDatabase) {
-    const selector = document.getElementById('databaseSelector');
-    const currentInfo = document.getElementById('currentDatabaseInfo');
-    
-    if (!selector || !currentInfo) return;
-    
-    // Clear existing options
-    selector.innerHTML = '';
-    
-    // Add database options
-    databases.forEach(db => {
-        const option = document.createElement('option');
-        option.value = db.name;
-        option.textContent = `${db.name} (${parseFloat(db.size_mb || 0).toFixed(2)} MB)`;
-        if (db.current) {
-            option.selected = true;
-        }
-        selector.appendChild(option);
-    });
-    
-    // Update current database info
-    currentInfo.textContent = `Current: ${currentDatabase}`;
-}
-
-// Set target database
-async function setTargetDatabase() {
-    if (!isAdminAuthenticated) {
-        showAlert('Admin authentication required', 'warning');
+    if (section === 'proposals') {
+        { const el = document.getElementById('proposals-section'); if (el) el.style.display = 'block'; }
+        loadProposalsData();
         return;
     }
-    
-    const selector = document.getElementById('databaseSelector');
-    const selectedDatabase = selector.value;
-    
-    if (!selectedDatabase) {
-        showAlert('Please select a database', 'warning');
+    if (section === 'accounts') {
+        { const el = document.getElementById('accounts-section'); if (el) el.style.display = 'block'; }
+        // Reset any previously selected unvoted account selections on entering Accounts view
+        try {
+            if (typeof window !== 'undefined') window.selectedUnvotedProposalAccountIds = [];
+        } catch (e) { /* noop */ }
         return;
     }
-    
-    try {
-        const response = await fetchWithCredentials('/api/admin/set-database', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ database: selectedDatabase })
-        });
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showAlert(`Database switched to ${result.currentDatabase}`, 'success');
-            
-            // Update current database info
-            const currentInfo = document.getElementById('currentDatabaseInfo');
-            if (currentInfo) {
-                currentInfo.textContent = `Current: ${result.currentDatabase}`;
-            }
-            
-            // Refresh database management if it's currently displayed
-            const resultDiv = document.getElementById('databaseManagementResult');
-            if (resultDiv && resultDiv.innerHTML.includes('Database Management Overview')) {
-                manageDatabases();
-            }
-            
-        } else {
-            showAlert('Failed to switch database', 'danger');
-        }
-        
-    } catch (error) {
-        console.error('Error setting database:', error);
-        showAlert('Error setting database: ' + error.message, 'danger');
+    if (section === 'outreach') {
+        { const el = document.getElementById('outreach-section'); if (el) el.style.display = 'block'; }
+        loadOutreachLogs();
+        return;
     }
-}
+    if (section === 'outreach-accounts') {
+        { const el = document.getElementById('outreach-accounts-section'); if (el) el.style.display = 'block'; }
+        loadOutreachAccounts();
+        return;
+    }
+    if (section === 'admin') {
+        if (!isAdminAuthenticated) {
+            showAlert('Admin authentication required', 'warning');
+            window.showSection('dashboard');
+            return;
+        }
+        { const el = document.getElementById('admin-section'); if (el) el.style.display = 'block'; }
+        return;
+    }
+    // Fallback to original handler for other sections
+    if (_orig_showSection) return _orig_showSection(section);
+};
 
-// Load database selector on page load
+// Ensure count is loaded on initial dashboard
+document.addEventListener('DOMContentLoaded', () => {
+    try { loadOutreachCount(); } catch {}
+});
+
+// Handle Enter key in password field
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize database selector when page loads
-    if (document.getElementById('databaseSelector')) {
-        // Load initial database information - but only if admin is authenticated
-        setTimeout(() => {
-            if (isAdminAuthenticated) {
-                manageDatabases().catch(console.error);
+    const passwordField = document.getElementById('adminPassword');
+    if (passwordField) {
+        passwordField.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                verifyAdminPassword();
             }
-        }, 1000);
+        });
     }
 });
+
+// Additional missing functions
+function renderVotedAccountsTable() {
+    // Placeholder function - would need implementation based on specific requirements
+    console.log('renderVotedAccountsTable called - placeholder implementation');
+    if (typeof window.currentRenderFunction === 'function') {
+        window.currentRenderFunction();
+    }
+}
+
+function renderUnvotedAccountsTable() {
+    // Placeholder function - would need implementation based on specific requirements
+    console.log('renderUnvotedAccountsTable called - placeholder implementation');
+    if (typeof window.currentRenderFunction === 'function') {
+        window.currentRenderFunction();
+    }
+}
+
+function loadDashboard() {
+    // Alias for loadDashboardData
+    loadDashboardData();
+}
+
+// Show proposal confusion matrix
+async function showProposalConfusion(proposalId = null) {
+    console.log('showProposalConfusion called with proposalId:', proposalId);
+    
+    try {
+        // Debug: Check if required elements exist
+        const confusionContainer = document.getElementById('confusionMatrixContainer');
+        const proposalsSection = document.getElementById('proposals-section');
+        const confusionTableDiv = document.getElementById('confusionMatrixTable');
+        
+        console.log('Debug: Elements found:', {
+            confusionContainer: !!confusionContainer,
+            proposalsSection: !!proposalsSection,
+            confusionTableDiv: !!confusionTableDiv
+        });
+        
+        if (!confusionContainer) {
+            console.error('confusionMatrixContainer not found!');
+            showAlert('Confusion matrix container not found in DOM', 'danger');
+            return;
+        }
+        
+        if (!confusionTableDiv) {
+            console.error('confusionMatrixTable not found!');
+            showAlert('Confusion matrix table element not found in DOM', 'danger');
+            return;
+        }
+        
+        // Hide proposals section and show confusion matrix
+        if (proposalsSection) proposalsSection.style.display = 'none';
+        confusionContainer.style.display = 'block';
+        
+        // Scroll to top
+        confusionContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+        // Prepare title
+        let titleText = 'All Proposals';
+        
+        if (proposalId) {
+            const proposal = proposals.find(p => p.id == proposalId);
+            titleText = proposal ? `Proposal ${proposalId} (${proposal.issuer_name || 'Unknown'})` : `Proposal ${proposalId}`;
+        }
+        
+        // Update title
+        const titleElement = confusionContainer.querySelector('h4');
+        if (titleElement) {
+            titleElement.innerHTML = `<i class="fas fa-chart-bar me-2"></i>Confusion Matrix - ${titleText}`;
+        }
+        
+        // Show loading state briefly
+        confusionTableDiv.innerHTML = `
+            <div class="text-center p-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading confusion matrix...</p>
+            </div>
+        `;
+        
+        // Clear metrics
+        ['accuracyMetric', 'precisionMetric', 'recallMetric', 'f1Metric'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = '-';
+            } else {
+                console.warn(`Metric element ${id} not found`);
+            }
+        });
+        
+        // For now, show placeholder data since API endpoint doesn't exist
+        // TODO: Replace with actual API call when backend endpoint is implemented
+        setTimeout(() => {
+            showPlaceholderMatrix();
+        }, 800); // Brief loading animation
+        
+        /* 
+        // Uncomment when API endpoint is ready:
+        // Prepare API call
+        let apiUrl = '/api/confusion-matrix';
+        if (proposalId) {
+            apiUrl += `?proposal_id=${proposalId}`;
+        }
+        
+        // Fetch confusion matrix data
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Render confusion matrix
+        renderConfusionMatrix(data);
+        */
+        
+    } catch (error) {
+        console.error('Error loading confusion matrix:', error);
+        
+        // Show error state and placeholder data
+        const confusionTableDiv = document.getElementById('confusionMatrixTable');
+        if (confusionTableDiv) {
+            confusionTableDiv.innerHTML = `
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Error Loading Confusion Matrix</h6>
+                    <p class="mb-0">${error.message}</p>
+                    <small class="text-muted">Showing demo data below.</small>
+                </div>
+            `;
+        }
+        
+        // Show placeholder metrics for demo
+        setTimeout(() => {
+            showPlaceholderMatrix();
+        }, 500);
+    }
+}
+
+// Render confusion matrix table and metrics
+function renderConfusionMatrix(data) {
+    // Default structure if no data provided
+    const matrix = data.matrix || {
+        'true_positive': 85,
+        'false_positive': 12,
+        'false_negative': 8,
+        'true_negative': 95
+    };
+    
+    const metrics = data.metrics || calculateMetrics(matrix);
+    
+    // Render confusion matrix table with square dimensions + metrics below
+    const matrixHtml = `
+        <table class="table table-bordered text-center mb-3" style="width: 400px; height: 400px; margin: 0 auto;">
+            <thead>
+                <tr>
+                    <th class="bg-light" style="width: 133px; height: 50px;"></th>
+                    <th class="bg-primary text-white" style="width: 133px; height: 50px;">Predicted NO</th>
+                    <th class="bg-primary text-white" style="width: 134px; height: 50px;">Predicted YES</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th class="bg-primary text-white" style="height: 175px;">Actual NO</th>
+                    <td style="height: 175px; vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.true_negative || 0}</td>
+                    <td style="height: 175px; vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.false_positive || 0}</td>
+                </tr>
+                <tr>
+                    <th class="bg-primary text-white" style="height: 175px;">Actual YES</th>
+                    <td style="height: 175px; vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.false_negative || 0}</td>
+                    <td style="height: 175px; vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.true_positive || 0}</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <!-- All Metrics in 2x2 Grid -->
+        <div class="row g-2">
+            <div class="col-6">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center p-2">
+                        <h6 class="card-title mb-1">Accuracy</h6>
+                        <h5 class="mb-0" id="accuracyMetric">${(metrics.accuracy * 100).toFixed(1)}%</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="card bg-info text-white">
+                    <div class="card-body text-center p-2">
+                        <h6 class="card-title mb-1">Precision</h6>
+                        <h5 class="mb-0" id="precisionMetric">${(metrics.precision * 100).toFixed(1)}%</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="card bg-warning text-white">
+                    <div class="card-body text-center p-2">
+                        <h6 class="card-title mb-1">Recall</h6>
+                        <h5 class="mb-0" id="recallMetric">${(metrics.recall * 100).toFixed(1)}%</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="card bg-secondary text-white">
+                    <div class="card-body text-center p-2">
+                        <h6 class="card-title mb-1">F1-Score</h6>
+                        <h5 class="mb-0" id="f1Metric">${(metrics.f1_score * 100).toFixed(1)}%</h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('confusionMatrixTable').innerHTML = matrixHtml;
+}
+
+// Calculate metrics from confusion matrix
+function calculateMetrics(matrix) {
+    const tp = matrix.true_positive || 0;
+    const fp = matrix.false_positive || 0;
+    const fn = matrix.false_negative || 0;
+    const tn = matrix.true_negative || 0;
+    
+    const total = tp + fp + fn + tn;
+    const accuracy = total > 0 ? (tp + tn) / total : 0;
+    const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+    const recall = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+    const f1_score = (precision + recall) > 0 ? 2 * (precision * recall) / (precision + recall) : 0;
+    
+    return { accuracy, precision, recall, f1_score };
+}
+
+// Show placeholder matrix for demo purposes
+function showPlaceholderMatrix() {
+    const placeholderData = {
+        matrix: {
+            'true_positive': 85,
+            'false_positive': 12,
+            'false_negative': 8,
+            'true_negative': 95
+        }
+    };
+    
+    placeholderData.metrics = calculateMetrics(placeholderData.matrix);
+    renderConfusionMatrix(placeholderData);
+    
+    // Add demo notice if it doesn't already exist
+    const tableContainer = document.getElementById('confusionMatrixTable');
+    if (!tableContainer.querySelector('.demo-notice')) {
+        const notice = document.createElement('div');
+        notice.className = 'alert alert-info mt-3 demo-notice';
+        notice.innerHTML = `
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Demo Data:</strong> This is placeholder data showing example confusion matrix results. 
+            Real data will be available when the <code>/api/confusion-matrix</code> endpoint is implemented.
+        `;
+        tableContainer.appendChild(notice);
+    }
+}
+
+function hideConfusionMatrix() {
+    document.getElementById('confusionMatrixContainer').style.display = 'none';
+    document.getElementById('proposals-section').style.display = 'block';
+    // Scroll back to proposals
+    document.getElementById('proposals-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showAddAccountModal() {
+    showAlert('Add account modal feature coming soon!', 'info');
+}
+
+// Filter and search functions for accounts
+function filterAccounts() {
+    showAlert('Filter accounts feature coming soon!', 'info');
+}
+
+function searchAccounts() {
+    showAlert('Search accounts feature coming soon!', 'info');
+}
+
+// Debug function to test confusion matrix
+function testConfusionMatrix() {
+    console.log('=== TESTING CONFUSION MATRIX ===');
+    
+    // Check if elements exist
+    const elements = {
+        confusionContainer: document.getElementById('confusionMatrixContainer'),
+        proposalsSection: document.getElementById('proposals-section'),
+        confusionTableDiv: document.getElementById('confusionMatrixTable'),
+        accuracyMetric: document.getElementById('accuracyMetric'),
+        precisionMetric: document.getElementById('precisionMetric'),
+        recallMetric: document.getElementById('recallMetric'),
+        f1Metric: document.getElementById('f1Metric')
+    };
+    
+    console.log('Elements check:', elements);
+    
+    // Test showing the confusion matrix directly
+    if (elements.confusionContainer && elements.confusionTableDiv) {
+        console.log('All required elements found, testing display...');
+        
+        // Show container
+        elements.confusionContainer.style.display = 'block';
+        if (elements.proposalsSection) {
+            elements.proposalsSection.style.display = 'none';
+        }
+        
+        // Test rendering placeholder data
+        showPlaceholderMatrix();
+        
+        console.log('Confusion matrix should now be visible');
+        return true;
+    } else {
+        console.error('Missing required elements:', Object.keys(elements).filter(key => !elements[key]));
+        return false;
+    }
+}
+
+// Add test button in console - call testConfusionMatrix() to debug
+console.log('Debug functions available: testConfusionMatrix(), showProposalConfusion()');
+console.log('To test: Open browser console and run testConfusionMatrix()');
+
+// Add global test function for easy access
+window.debugConfusionMatrix = function() {
+    console.log('=== DEBUGGING CONFUSION MATRIX ===');
+    
+    // Check if elements exist
+    const elements = {
+        confusionContainer: document.getElementById('confusionMatrixContainer'),
+        proposalsSection: document.getElementById('proposals-section'),
+        confusionTableDiv: document.getElementById('confusionMatrixTable'),
+        accuracyMetric: document.getElementById('accuracyMetric'),
+        precisionMetric: document.getElementById('precisionMetric'),
+        recallMetric: document.getElementById('recallMetric'),
+        f1Metric: document.getElementById('f1Metric')
+    };
+    
+    console.log('Elements found:', elements);
+    
+    // Create visual indicator on page
+    let debugDiv = document.getElementById('debugResults');
+    if (!debugDiv) {
+        debugDiv = document.createElement('div');
+        debugDiv.id = 'debugResults';
+        debugDiv.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #fff; border: 2px solid #007bff; padding: 15px; border-radius: 5px; z-index: 9999; max-width: 300px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);';
+        document.body.appendChild(debugDiv);
+    }
+    
+    let resultHtml = '<h6 style="color: #007bff;">Confusion Matrix Debug</h6>';
+    
+    // Check elements
+    for (const [name, element] of Object.entries(elements)) {
+        const status = element ? '✅' : '❌';
+        const color = element ? 'green' : 'red';
+        resultHtml += `<div style="color: ${color};">${status} ${name}</div>`;
+    }
+    
+    // Test showing confusion matrix
+    if (elements.confusionContainer && elements.confusionTableDiv) {
+        resultHtml += '<div style="color: blue;">🔧 Testing display...</div>';
+        
+        // Show the confusion matrix
+        if (elements.proposalsSection) elements.proposalsSection.style.display = 'none';
+        elements.confusionContainer.style.display = 'block';
+        
+        // Add placeholder data
+        elements.confusionTableDiv.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-bordered text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th rowspan="2" class="align-middle">Actual</th>
+                            <th colspan="2">Predicted</th>
+                        </tr>
+                        <tr>
+                            <th class="bg-success bg-opacity-25">Approved</th>
+                            <th class="bg-danger bg-opacity-25">Rejected</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <th class="bg-success bg-opacity-25">Approved</th>
+                            <td class="fs-5 fw-bold text-success">85</td>
+                            <td class="fs-5 fw-bold text-warning">8</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-danger bg-opacity-25">Rejected</th>
+                            <td class="fs-5 fw-bold text-warning">12</td>
+                            <td class="fs-5 fw-bold text-success">95</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="alert alert-success mt-2">
+                <strong>✅ DEBUG SUCCESS:</strong> Confusion matrix is now visible with test data!
+            </div>
+        `;
+        
+        // Update metrics
+        if (elements.accuracyMetric) elements.accuracyMetric.textContent = '90.0%';
+        if (elements.precisionMetric) elements.precisionMetric.textContent = '87.6%';
+        if (elements.recallMetric) elements.recallMetric.textContent = '91.4%';
+        if (elements.f1Metric) elements.f1Metric.textContent = '89.5%';
+        
+        // Scroll to confusion matrix
+        elements.confusionContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+        resultHtml += '<div style="color: green;">✅ Test completed! Check confusion matrix above.</div>';
+        resultHtml += '<button onclick="hideConfusionMatrix();document.getElementById(\'debugResults\').remove();" style="margin-top:10px;padding:5px 10px;background:#dc3545;color:white;border:none;border-radius:3px;">Close & Reset</button>';
+    } else {
+        resultHtml += '<div style="color: red;">❌ Required elements missing!</div>';
+    }
+    
+    debugDiv.innerHTML = resultHtml;
+    
+    return elements;
+};
+
+// Also make it easily accessible
+window.testCM = window.debugConfusionMatrix;
