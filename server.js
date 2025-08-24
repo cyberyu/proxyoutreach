@@ -844,6 +844,52 @@ app.get('/api/admin/issuer-list', requireAdmin, async (req, res) => {
   }
 });
 
+// Get issuer list (frontend-compatible endpoint)
+app.get('/api/admin/issuers', requireAdmin, async (req, res) => {
+  try {
+    // Get all unique issuers from proposals_predictions table
+    const [issuers] = await db.promise().query(`
+      SELECT 
+        issuer_name,
+        COUNT(DISTINCT proposal_master_skey) as proposal_count
+      FROM proposals_predictions 
+      WHERE issuer_name IS NOT NULL AND issuer_name != ''
+      GROUP BY issuer_name
+      ORDER BY issuer_name
+    `);
+    
+    res.json(issuers);
+  } catch (error) {
+    console.error('Error getting issuer list:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply issuer filter
+app.post('/api/admin/apply-issuer-filter', requireAdmin, async (req, res) => {
+  try {
+    const { issuers } = req.body;
+    
+    if (!Array.isArray(issuers)) {
+      return res.status(400).json({ error: 'issuers must be an array' });
+    }
+    
+    // Store selected issuers in session for filtering
+    req.session.selectedIssuers = issuers;
+    
+    console.log('Applied issuer filter:', issuers);
+    
+    res.json({ 
+      message: `Filter applied to ${issuers.length} issuers`,
+      selectedIssuers: issuers,
+      count: issuers.length
+    });
+  } catch (error) {
+    console.error('Error applying issuer filter:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Set selected issuers
 app.post('/api/admin/set-selected-issuers', requireAdmin, (req, res) => {
   try {

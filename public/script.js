@@ -2339,10 +2339,6 @@ function applySortingToProposals() {
     });
 }
 
-function viewProposalDetails(id) {
-    showAlert(`Proposal details for ID ${id} - Feature coming soon!`, 'info');
-}
-
 function getContactMethodIcon(method) {
     switch(method) {
         case 'email':
@@ -2837,8 +2833,35 @@ async function showIssuerList() {
     }
     
     try {
-        const response = await fetch('/api/admin/issuers');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const response = await fetchWithCredentials('/api/admin/issuers');
+        
+        if (!response.ok) {
+            // API endpoint not implemented yet - show helpful message
+            const resultDiv = document.getElementById('systemInfoResult');
+            if (resultDiv) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-warning">
+                        <h6><i class="fas fa-exclamation-triangle me-2"></i>Issuer List Feature</h6>
+                        <p>The issuer filtering feature requires server-side implementation of the <code>/api/admin/issuers</code> endpoint.</p>
+                        <p><strong>Expected API Response:</strong></p>
+                        <pre class="mb-0">[
+  {
+    "issuer_name": "Company A",
+    "proposal_count": 15
+  },
+  {
+    "issuer_name": "Company B", 
+    "proposal_count": 8
+  }
+]</pre>
+                        <p class="mt-2 mb-0"><small class="text-muted">Once implemented, this will provide issuer selection and filtering capabilities.</small></p>
+                    </div>
+                `;
+            } else {
+                showAlert('Server endpoint /api/admin/issuers not implemented yet', 'warning');
+            }
+            return;
+        }
         
         const issuers = await response.json();
         let html = `
@@ -2882,30 +2905,64 @@ async function showIssuerList() {
             </div>
         `;
         
-        document.getElementById('issuerFilterResult').innerHTML = html;
-        updateSelectedCount();
+        const resultDiv = document.getElementById('systemInfoResult');
+        if (resultDiv) {
+            resultDiv.innerHTML = html;
+            updateSelectedCount();
+        } else {
+            showAlert('Could not display issuer list - target element not found', 'error');
+        }
         
     } catch (error) {
-        document.getElementById('issuerFilterResult').innerHTML = 
-            `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        console.error('Error in showIssuerList:', error);
+        const resultDiv = document.getElementById('systemInfoResult');
+        if (resultDiv) {
+            resultDiv.innerHTML = `<div class="alert alert-danger">Error loading issuer list: ${error.message}</div>`;
+        } else {
+            showAlert('Error loading issuer list: ' + error.message, 'error');
+        }
     }
 }
 
 // Select all issuers
 function selectAllIssuers() {
-    document.querySelectorAll('.issuer-checkbox').forEach(cb => {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    
+    if (checkboxes.length === 0) {
+        showAlert('No issuer checkboxes found', 'warning');
+        return;
+    }
+    
+    checkboxes.forEach(cb => {
         cb.checked = true;
     });
-    document.getElementById('selectAllCheckbox').checked = true;
+    
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = true;
+    }
+    
     updateSelectedCount();
 }
 
 // Clear all issuer selections
 function clearAllIssuers() {
-    document.querySelectorAll('.issuer-checkbox').forEach(cb => {
+    const checkboxes = document.querySelectorAll('.issuer-checkbox');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    
+    if (checkboxes.length === 0) {
+        showAlert('No issuer checkboxes found', 'warning');
+        return;
+    }
+    
+    checkboxes.forEach(cb => {
         cb.checked = false;
     });
-    document.getElementById('selectAllCheckbox').checked = false;
+    
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = false;
+    }
+    
     updateSelectedCount();
 }
 
@@ -2921,7 +2978,11 @@ function toggleAllIssuers(selectAllCheckbox) {
 function updateSelectedCount() {
     const checked = document.querySelectorAll('.issuer-checkbox:checked').length;
     const total = document.querySelectorAll('.issuer-checkbox').length;
-    document.getElementById('selectedCount').textContent = `${checked} of ${total} issuers selected`;
+    const countElement = document.getElementById('selectedCount');
+    
+    if (countElement) {
+        countElement.textContent = `${checked} of ${total} issuers selected`;
+    }
 }
 
 // Update the state of select all checkbox
@@ -2929,6 +2990,10 @@ function updateSelectAllCheckbox() {
     const checkboxes = document.querySelectorAll('.issuer-checkbox');
     const checkedBoxes = document.querySelectorAll('.issuer-checkbox:checked');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    
+    if (!selectAllCheckbox) {
+        return; // Element not found, skip update
+    }
     
     if (checkedBoxes.length === 0) {
         selectAllCheckbox.indeterminate = false;
@@ -2961,32 +3026,36 @@ async function applyIssuerFilter() {
         }
         
         // Apply filter to backend (implementation depends on backend API)
-        const response = await fetch('/api/admin/apply-issuer-filter', {
+        const response = await fetchWithCredentials('/api/admin/apply-issuer-filter', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ issuers: selectedIssuers })
         });
         
-        if (response.ok) {
-            showAlert(`Filter applied to ${selectedIssuers.length} issuers`, 'success');
-            
-            // Refresh current view if needed
-            const currentSection = document.querySelector('.content-section[style*="block"]');
-            if (currentSection) {
-                const sectionId = currentSection.id.replace('-section', '');
-                if (sectionId === 'dashboard') {
-                    loadDashboardData();
-                } else if (sectionId === 'proposals') {
-                    loadProposalsData();
-                } else if (sectionId === 'outreach') {
-                    loadOutreachLogs();
-                }
+        if (!response.ok) {
+            // API endpoint not implemented yet
+            showAlert(`Issuer filter API not implemented yet. Selected ${selectedIssuers.length} issuers: ${selectedIssuers.join(', ')}`, 'info');
+            return;
+        }
+        
+        const result = await response.json();
+        showAlert(`Filter applied to ${selectedIssuers.length} issuers`, 'success');
+        
+        // Refresh current view if needed
+        const currentSection = document.querySelector('.content-section[style*="block"]');
+        if (currentSection) {
+            const sectionId = currentSection.id.replace('-section', '');
+            if (sectionId === 'dashboard') {
+                loadDashboardData();
+            } else if (sectionId === 'proposals') {
+                loadProposalsData();
+            } else if (sectionId === 'outreach') {
+                loadOutreachLogs();
             }
-        } else {
-            throw new Error(`HTTP ${response.status}`);
         }
         
     } catch (error) {
+        console.error('Error applying issuer filter:', error);
         showAlert('Error applying filter: ' + error.message, 'danger');
     }
 }
@@ -3053,8 +3122,24 @@ function managePermissions() {
 // Extend showSection to handle outreach-accounts
 const _orig_showSection = typeof showSection === 'function' ? showSection : null;
 window.showSection = function(section) {
-    // Hide all
+    // CRITICAL: Always clean up confusion matrix when switching sections
+    // This ensures confusion matrix never coexists with other views
+    const confusionContainer = document.getElementById('confusionMatrixContainer');
+    if (confusionContainer) {
+        // Store the confusion matrix HTML for later restoration if needed
+        if (!window.confusionMatrixHTML) {
+            window.confusionMatrixHTML = confusionContainer.outerHTML;
+            window.confusionMatrixParent = confusionContainer.parentNode;
+        }
+        
+        // Completely remove from DOM
+        confusionContainer.remove();
+        console.log('Confusion matrix cleaned up during section switch to:', section);
+    }
+    
+    // Hide all content sections
     document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
+    
     if (section === 'dashboard') {
         { const el = document.getElementById('dashboard-section'); if (el) el.style.display = 'block'; }
         loadDashboardData();
@@ -3142,8 +3227,15 @@ async function showProposalConfusion(proposalId = null) {
     console.log('showProposalConfusion called with proposalId:', proposalId);
     
     try {
-        // Debug: Check if required elements exist
-        const confusionContainer = document.getElementById('confusionMatrixContainer');
+        // First, check if confusion matrix exists in DOM, if not restore it
+        let confusionContainer = document.getElementById('confusionMatrixContainer');
+        if (!confusionContainer && window.confusionMatrixHTML && window.confusionMatrixParent) {
+            console.log('Restoring confusion matrix to DOM...');
+            // Restore the confusion matrix to the DOM
+            window.confusionMatrixParent.insertAdjacentHTML('beforeend', window.confusionMatrixHTML);
+            confusionContainer = document.getElementById('confusionMatrixContainer');
+        }
+        
         const proposalsSection = document.getElementById('proposals-section');
         const confusionTableDiv = document.getElementById('confusionMatrixTable');
         
@@ -3154,7 +3246,7 @@ async function showProposalConfusion(proposalId = null) {
         });
         
         if (!confusionContainer) {
-            console.error('confusionMatrixContainer not found!');
+            console.error('confusionMatrixContainer not found and could not be restored!');
             showAlert('Confusion matrix container not found in DOM', 'danger');
             return;
         }
@@ -3165,9 +3257,19 @@ async function showProposalConfusion(proposalId = null) {
             return;
         }
         
-        // Hide proposals section and show confusion matrix
+        // Hide all other sections and show confusion matrix
+        document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
         if (proposalsSection) proposalsSection.style.display = 'none';
+        
+        // Show confusion matrix with all visibility properties
         confusionContainer.style.display = 'block';
+        confusionContainer.style.opacity = '1';
+        confusionContainer.style.visibility = 'visible';
+        confusionContainer.style.removeProperty('position');
+        confusionContainer.style.removeProperty('left');
+        confusionContainer.style.removeProperty('top');
+        confusionContainer.style.removeProperty('z-index');
+        confusionContainer.classList.remove('hidden');
         
         // Scroll to top
         confusionContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3192,7 +3294,7 @@ async function showProposalConfusion(proposalId = null) {
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p class="mt-2">Loading confusion matrix...</p>
+                <p class="mt-2">Calculating confusion matrix from proposal data...</p>
             </div>
         `;
         
@@ -3206,11 +3308,11 @@ async function showProposalConfusion(proposalId = null) {
             }
         });
         
-        // For now, show placeholder data since API endpoint doesn't exist
-        // TODO: Replace with actual API call when backend endpoint is implemented
+        // Calculate and show real confusion matrix data
         setTimeout(() => {
-            showPlaceholderMatrix();
-        }, 800); // Brief loading animation
+            const confusionData = calculateRealConfusionMatrix(proposalId);
+            renderConfusionMatrix(confusionData);
+        }, 300); // Brief loading animation
         
         /* 
         // Uncomment when API endpoint is ready:
@@ -3248,9 +3350,10 @@ async function showProposalConfusion(proposalId = null) {
             `;
         }
         
-        // Show placeholder metrics for demo
+        // Show error state but still try to show real data if possible
         setTimeout(() => {
-            showPlaceholderMatrix();
+            const confusionData = calculateRealConfusionMatrix(proposalId);
+            renderConfusionMatrix(confusionData);
         }, 500);
     }
 }
@@ -3266,6 +3369,7 @@ function renderConfusionMatrix(data) {
     };
     
     const metrics = data.metrics || calculateMetrics(matrix);
+    const dataInfo = data.dataInfo || null;
     
     // Render confusion matrix table with square dimensions + metrics below
     const matrixHtml = `
@@ -3290,6 +3394,15 @@ function renderConfusionMatrix(data) {
                 </tr>
             </tbody>
         </table>
+        
+        <!-- Data Info -->
+        ${dataInfo ? `
+            <div class="alert ${dataInfo.validProposals > 0 ? 'alert-info' : 'alert-warning'} mb-3">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Data Source:</strong> ${dataInfo.message}<br>
+                <small>Analyzed ${dataInfo.validProposals} of ${dataInfo.totalProposals} total proposals</small>
+            </div>
+        ` : ''}
         
         <!-- All Metrics in 2x2 Grid -->
         <div class="row g-2">
@@ -3347,6 +3460,117 @@ function calculateMetrics(matrix) {
     return { accuracy, precision, recall, f1_score };
 }
 
+// Calculate real confusion matrix from proposals data
+function calculateRealConfusionMatrix(proposalId = null) {
+    console.log('Calculating real confusion matrix for proposalId:', proposalId);
+    
+    // Filter proposals based on proposalId if provided
+    let dataToAnalyze = proposals;
+    if (proposalId && proposalId !== null) {
+        dataToAnalyze = proposals.filter(p => p.id == proposalId);
+        console.log(`Filtered to ${dataToAnalyze.length} proposal(s) for ID ${proposalId}`);
+    } else {
+        console.log(`Analyzing all ${dataToAnalyze.length} proposals`);
+    }
+    
+    // Filter out proposals without the required data
+    const validProposals = dataToAnalyze.filter(p => {
+        const hasApprovalData = p.approved !== undefined && p.approved !== null;
+        const hasPredictionData = (p.predicted_for_shares !== undefined && p.predicted_against_shares !== undefined) ||
+                                  p.prediction_correct !== undefined;
+        return hasApprovalData && hasPredictionData;
+    });
+    
+    console.log(`Found ${validProposals.length} proposals with valid data for confusion matrix`);
+    
+    if (validProposals.length === 0) {
+        console.warn('No valid proposals found for confusion matrix calculation');
+        // Return placeholder data if no valid data
+        return {
+            matrix: {
+                'true_positive': 0,
+                'false_positive': 0,
+                'false_negative': 0,
+                'true_negative': 0
+            },
+            metrics: { accuracy: 0, precision: 0, recall: 0, f1_score: 0 },
+            dataInfo: {
+                totalProposals: dataToAnalyze.length,
+                validProposals: 0,
+                message: 'No valid prediction data available'
+            }
+        };
+    }
+    
+    // Calculate confusion matrix values
+    let truePositive = 0;   // Predicted Approved, Actually Approved
+    let falsePositive = 0;  // Predicted Approved, Actually Rejected
+    let falseNegative = 0;  // Predicted Rejected, Actually Approved
+    let trueNegative = 0;   // Predicted Rejected, Actually Rejected
+    
+    validProposals.forEach(proposal => {
+        const actuallyApproved = proposal.approved === true || proposal.approved === 1;
+        
+        // Determine predicted approval
+        let predictedApproved = false;
+        
+        // Method 1: Use prediction_correct if available and compare with actual
+        if (proposal.prediction_correct !== undefined) {
+            // If prediction was correct and proposal was approved, then prediction was "approved"
+            // If prediction was correct and proposal was rejected, then prediction was "rejected"
+            // If prediction was incorrect and proposal was approved, then prediction was "rejected"
+            // If prediction was incorrect and proposal was rejected, then prediction was "approved"
+            predictedApproved = proposal.prediction_correct ? actuallyApproved : !actuallyApproved;
+        }
+        // Method 2: Compare predicted_for_shares vs predicted_against_shares
+        else if (proposal.predicted_for_shares !== undefined && proposal.predicted_against_shares !== undefined) {
+            const forShares = parseFloat(proposal.predicted_for_shares) || 0;
+            const againstShares = parseFloat(proposal.predicted_against_shares) || 0;
+            predictedApproved = forShares > againstShares;
+        }
+        // Method 3: Use for_percentage if available (>50% means predicted approved)
+        else if (proposal.for_percentage !== undefined) {
+            const forPercentage = parseFloat(proposal.for_percentage) || 0;
+            predictedApproved = forPercentage > 0.5;
+        }
+        
+        // Update confusion matrix
+        if (predictedApproved && actuallyApproved) {
+            truePositive++;
+        } else if (predictedApproved && !actuallyApproved) {
+            falsePositive++;
+        } else if (!predictedApproved && actuallyApproved) {
+            falseNegative++;
+        } else if (!predictedApproved && !actuallyApproved) {
+            trueNegative++;
+        }
+        
+        console.log(`Proposal ${proposal.id}: Predicted=${predictedApproved}, Actual=${actuallyApproved}`);
+    });
+    
+    const matrix = {
+        'true_positive': truePositive,
+        'false_positive': falsePositive,
+        'false_negative': falseNegative,
+        'true_negative': trueNegative
+    };
+    
+    const metrics = calculateMetrics(matrix);
+    
+    console.log('Confusion Matrix Results:', matrix);
+    console.log('Calculated Metrics:', metrics);
+    
+    return {
+        matrix: matrix,
+        metrics: metrics,
+        dataInfo: {
+            totalProposals: dataToAnalyze.length,
+            validProposals: validProposals.length,
+            message: `Analysis of ${validProposals.length} proposals with prediction data`
+        }
+    };
+}
+
 // Show placeholder matrix for demo purposes
 function showPlaceholderMatrix() {
     const placeholderData = {
@@ -3376,10 +3600,37 @@ function showPlaceholderMatrix() {
 }
 
 function hideConfusionMatrix() {
-    document.getElementById('confusionMatrixContainer').style.display = 'none';
-    document.getElementById('proposals-section').style.display = 'block';
-    // Scroll back to proposals
-    document.getElementById('proposals-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Nuclear option: completely remove confusion matrix from DOM
+    const confusionContainer = document.getElementById('confusionMatrixContainer');
+    if (confusionContainer) {
+        // Store the confusion matrix HTML for later restoration if needed
+        if (!window.confusionMatrixHTML) {
+            window.confusionMatrixHTML = confusionContainer.outerHTML;
+            window.confusionMatrixParent = confusionContainer.parentNode;
+        }
+        
+        // Completely remove from DOM
+        confusionContainer.remove();
+        console.log('Confusion matrix removed from DOM via hideConfusionMatrix');
+    }
+    
+    // Properly return to proposals view
+    const proposalsSection = document.getElementById('proposals-section');
+    if (proposalsSection) {
+        proposalsSection.style.display = 'block';
+        
+        // Make sure proposals content is visible
+        const proposalsCard = document.getElementById('proposalsCard');
+        if (proposalsCard) proposalsCard.style.display = 'block';
+        
+        // Scroll back to proposals
+        proposalsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    // Set app view back to proposals
+    if (typeof window !== 'undefined') {
+        window._appView = 'proposals';
+    }
 }
 
 function showAddAccountModal() {
@@ -3434,8 +3685,17 @@ function testConfusionMatrix() {
 }
 
 // Add test button in console - call testConfusionMatrix() to debug
-console.log('Debug functions available: testConfusionMatrix(), showProposalConfusion()');
-console.log('To test: Open browser console and run testConfusionMatrix()');
+console.log('Debug functions available:');
+console.log('- testConfusionMatrix() - Test confusion matrix display');
+console.log('- showProposalConfusion() - Show confusion matrix with REAL DATA');
+console.log('- hideConfusionMatrix() - Hide confusion matrix');
+console.log('- forceCleanupConfusionMatrix() - Force remove confusion matrix from DOM');
+console.log('- resetToDashboard() - Complete reset to dashboard');
+console.log('- testConfusionMatrixIsolation() - Test isolation across all sections');
+console.log('- calculateRealConfusionMatrix() - Calculate confusion matrix from proposal data');
+console.log('- window.debugConfusionMatrix() or window.testCM() - Visual debug tool');
+console.log('🎉 REAL DATA: Confusion matrix now uses actual proposal prediction data!');
+console.log('To test real data: testRealConfusionMatrix() or testRealConfusionMatrix(279) for specific proposal');
 
 // Add global test function for easy access
 window.debugConfusionMatrix = function() {
@@ -3535,3 +3795,147 @@ window.debugConfusionMatrix = function() {
 
 // Also make it easily accessible
 window.testCM = window.debugConfusionMatrix;
+
+// Comprehensive cleanup function to ensure confusion matrix isolation
+function forceCleanupConfusionMatrix() {
+    console.log('=== FORCE CLEANUP CONFUSION MATRIX ===');
+    
+    const confusionContainer = document.getElementById('confusionMatrixContainer');
+    if (confusionContainer) {
+        // Store the confusion matrix HTML for later restoration if needed
+        if (!window.confusionMatrixHTML) {
+            window.confusionMatrixHTML = confusionContainer.outerHTML;
+            window.confusionMatrixParent = confusionContainer.parentNode;
+        }
+        
+        // Completely remove from DOM
+        confusionContainer.remove();
+        console.log('Confusion matrix forcibly removed from DOM');
+        return 'Confusion matrix removed from DOM';
+    } else {
+        console.log('Confusion matrix container not found in DOM');
+        return 'Confusion matrix not found in DOM';
+    }
+}
+
+// Global cleanup function for easy access
+window.forceCleanupConfusionMatrix = forceCleanupConfusionMatrix;
+
+// Complete dashboard reset function with improved confusion matrix cleanup
+function resetToDashboard() {
+    console.log('=== COMPLETE DASHBOARD RESET ===');
+    
+    // Force cleanup confusion matrix first
+    forceCleanupConfusionMatrix();
+    
+    // Hide all sections
+    document.querySelectorAll('.content-section').forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    // Show dashboard section
+    const dashboardSection = document.getElementById('dashboard-section');
+    if (dashboardSection) {
+        dashboardSection.style.display = 'block';
+        console.log('Dashboard section shown');
+    }
+    
+    // Update navigation
+    document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+    const dashboardLink = document.querySelector('a[onclick*="dashboard"]');
+    if (dashboardLink) {
+        dashboardLink.classList.add('active');
+    }
+    
+    // Load dashboard data
+    loadDashboardData();
+    
+    return 'Dashboard completely reset with confusion matrix cleanup';
+}
+
+// Global access
+window.resetToDashboard = resetToDashboard;
+
+// Comprehensive test to verify confusion matrix isolation
+function testConfusionMatrixIsolation() {
+    console.log('=== TESTING CONFUSION MATRIX ISOLATION ===');
+    
+    let testResults = [];
+    
+    // Test 1: Show confusion matrix
+    console.log('Test 1: Showing confusion matrix...');
+    showProposalConfusion();
+    setTimeout(() => {
+        const isVisible = !!document.getElementById('confusionMatrixContainer');
+        testResults.push(`✅ Confusion matrix shown: ${isVisible}`);
+        console.log(`Confusion matrix visible: ${isVisible}`);
+        
+        // Test 2: Switch to Dashboard
+        console.log('Test 2: Switching to Dashboard...');
+        window.showSection('dashboard');
+        setTimeout(() => {
+            const stillVisible = !!document.getElementById('confusionMatrixContainer');
+            testResults.push(`${stillVisible ? '❌' : '✅'} Confusion matrix after Dashboard switch: ${stillVisible ? 'STILL VISIBLE (BAD)' : 'HIDDEN (GOOD)'}`);
+            console.log(`Confusion matrix after Dashboard: ${stillVisible}`);
+            
+            // Test 3: Switch to Accounts
+            console.log('Test 3: Switching to Accounts...');
+            window.showSection('accounts');
+            setTimeout(() => {
+                const stillVisible2 = !!document.getElementById('confusionMatrixContainer');
+                testResults.push(`${stillVisible2 ? '❌' : '✅'} Confusion matrix after Accounts switch: ${stillVisible2 ? 'STILL VISIBLE (BAD)' : 'HIDDEN (GOOD)'}`);
+                console.log(`Confusion matrix after Accounts: ${stillVisible2}`);
+                
+                // Test 4: Switch to Admin
+                console.log('Test 4: Switching to Admin...');
+                window.showSection('admin');
+                setTimeout(() => {
+                    const stillVisible3 = !!document.getElementById('confusionMatrixContainer');
+                    testResults.push(`${stillVisible3 ? '❌' : '✅'} Confusion matrix after Admin switch: ${stillVisible3 ? 'STILL VISIBLE (BAD)' : 'HIDDEN (GOOD)'}`);
+                    console.log(`Confusion matrix after Admin: ${stillVisible3}`);
+                    
+                    // Show final results
+                    console.log('\n=== FINAL TEST RESULTS ===');
+                    testResults.forEach(result => console.log(result));
+                    
+                    // Display results on page
+                    let resultsDiv = document.getElementById('testResults');
+                    if (!resultsDiv) {
+                        resultsDiv = document.createElement('div');
+                        resultsDiv.id = 'testResults';
+                        resultsDiv.style.cssText = 'position: fixed; top: 10px; left: 10px; background: #f8f9fa; border: 2px solid #007bff; padding: 15px; border-radius: 5px; z-index: 10000; max-width: 400px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);';
+                        document.body.appendChild(resultsDiv);
+                    }
+                    
+                    resultsDiv.innerHTML = `
+                        <h6 style="color: #007bff; margin-bottom: 10px;">🧪 Confusion Matrix Isolation Test</h6>
+                        ${testResults.map(result => `<div style="margin: 5px 0; font-size: 14px;">${result}</div>`).join('')}
+                        <button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">Close</button>
+                        <button onclick="window.showSection('dashboard')" style="margin-top: 10px; margin-left: 10px; padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">Back to Dashboard</button>
+                    `;
+                    
+                }, 500);
+            }, 500);
+        }, 500);
+    }, 500);
+}
+
+// Make test function globally accessible
+window.testConfusionMatrixIsolation = testConfusionMatrixIsolation;
+
+// Global function to test real confusion matrix calculation
+window.testRealConfusionMatrix = function(proposalId = null) {
+    console.log('=== TESTING REAL CONFUSION MATRIX CALCULATION ===');
+    const result = calculateRealConfusionMatrix(proposalId);
+    
+    console.log('Confusion Matrix Results:');
+    console.table(result.matrix);
+    console.log('Metrics:');
+    console.table(result.metrics);
+    console.log('Data Info:', result.dataInfo);
+    
+    return result;
+};
+
+// Make calculation function globally accessible
+window.calculateRealConfusionMatrix = calculateRealConfusionMatrix;
