@@ -16,23 +16,33 @@
             background: rgba(255, 255, 255, 0.7);
             border: 1px solid rgba(0, 0, 0, 0.1);
         }
-        
+
         #confusionMatrixTable table {
             font-size: 0.9rem;
         }
-        
+
         #confusionMatrixTable th {
             font-weight: 600;
         }
-        
+
         .bg-success.bg-opacity-25 {
             background-color: rgba(25, 135, 84, 0.25) !important;
         }
-        
+
         .bg-danger.bg-opacity-25 {
             background-color: rgba(220, 53, 69, 0.25) !important;
         }
-        
+
+        /* Histogram canvas fix: prevent stretching */
+        #confusionMatrixTable canvas {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 400px;
+            width: 100% !important;
+            height: 120px !important;
+        }
+
         /* Smooth transitions */
         #confusionMatrixContainer, #proposalAccountsContainer {
             transition: opacity 0.3s ease-in-out;
@@ -344,8 +354,8 @@
             
             <!-- Confusion Matrix Content -->
             <div class="row">
-                <!-- Left column: Confusion Matrix + All Metrics -->
-                <div class="col-md-6">
+                <!-- Full-width: Confusion Matrix, Delta1, Delta2 -->
+                <div class="col-12">
                     <div class="card">
                         <div class="card-header">
                             <h6 class="mb-0"><i class="fas fa-table me-2"></i>Confusion Matrix</h6>
@@ -355,66 +365,11 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- Right column: Space for additional metrics -->
-                <div class="col-md-6">
-                    <div class="card bg-light">
-                        <div class="card-header">
-                            <h6 class="mb-0 text-muted"><i class="fas fa-chart-line me-2"></i>Additional Metrics</h6>
-                        </div>
-                        <div class="card-body text-center">
-                            <h5 class="text-muted mb-3">Space for Future Metrics</h5>
-                            <p class="text-muted">Additional performance metrics, model comparisons, or custom analytics will be displayed here.</p>
-                            <div class="mt-4">
-                                <div class="placeholder-glow">
-                                    <span class="placeholder col-8 mb-2"></span>
-                                    <span class="placeholder col-6 mb-2"></span>
-                                    <span class="placeholder col-7"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
-            
-            <!-- Bottom row: Classification Metrics -->
-            <div class="row mt-4">
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-calculator me-2"></i>Classification Metrics</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row text-center">
-                                <div class="col-md-3">
-                                    <div class="metric-card">
-                                        <h5 class="text-primary mb-1" id="accuracyMetric">-</h5>
-                                        <small class="text-muted">Accuracy</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="metric-card">
-                                        <h5 class="text-success mb-1" id="precisionMetric">-</h5>
-                                        <small class="text-muted">Precision</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="metric-card">
-                                        <h5 class="text-warning mb-1" id="recallMetric">-</h5>
-                                        <small class="text-muted">Recall</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="metric-card">
-                                        <h5 class="text-info mb-1" id="f1Metric">-</h5>
-                                        <small class="text-muted">F1-Score</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+
+            <!-- Confusion Matrix Metrics Report: always visible, after matrix card -->
+            <!-- Confusion Matrix Metrics card removed: metrics are now shown inside the confusion matrix card itself -->
+            <!-- Bottom row: (Classification Metrics section removed) -->
         </div>
 
         <!-- Accounts Section -->

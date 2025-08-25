@@ -1,26 +1,3 @@
-// Helper: showProposalConfusionWithFilters (global)
-window.showProposalConfusionWithFilters = function() {
-    // Always show confusion matrix with current filters
-    window.showProposalConfusion();
-};
-// Fetch all proposals from backend (all pages, not just 50)
-async function fetchAllProposals() {
-    let allProposals = [];
-    let page = 1;
-    let totalPages = 1;
-    const limit = 1000; // Increase limit to reduce number of requests
-    do {
-        const url = `${API_BASE ? API_BASE : ''}/api/proposals?page=${page}&limit=${limit}`;
-        const response = await (typeof fetchWithCredentials === 'function' ? fetchWithCredentials(url) : fetch(url));
-        const data = await response.json();
-        if (Array.isArray(data.proposals)) {
-            allProposals = allProposals.concat(data.proposals);
-        }
-        totalPages = data.pagination && data.pagination.total_pages ? data.pagination.total_pages : 1;
-        page++;
-    } while (page <= totalPages);
-    return allProposals;
-}
 // Debug area update function (moved to top level for global access)
 // Debug legend function removed
 // Global variables
@@ -514,7 +491,7 @@ async function loadProposalsTable() {
     try {
         console.log('Loading proposals table...');
         
-        let url = `${API_BASE}/api/proposals?page=${currentProposalsPage}&limit=50`;
+        let url = `${API_BASE}/api/proposals?page=${currentProposalsPage}`;
         
         console.log('Fetching proposals from:', url);
         
@@ -531,7 +508,9 @@ async function loadProposalsTable() {
         
         renderProposalsTable();
         renderProposalsPagination(data.pagination);
-        
+
+
+
         console.log('Proposals table rendered successfully');
         
     } catch (error) {
@@ -579,10 +558,11 @@ function renderProposalsTable() {
         { key: 'issuer_name', label: 'Issuer Name' },
         { key: 'category', label: 'Category' },
         { key: 'prediction_correct', label: 'Prediction Accuracy' },
+        // Proposal content column (truncated to 10 words, tooltip for full)
+        { key: 'proposal', label: 'Proposal' },
         { key: 'approved', label: 'Approved Status' },
         { key: 'for_percentage', label: 'For Percentage' },
         { key: 'against_percentage', label: 'Against Percentage' },
-        // Added share summary fields to appear in main view before detailed view
         { key: 'predicted_for_shares', label: 'Predicted For Shares' },
         { key: 'predicted_against_shares', label: 'Predicted Against Shares' },
         { key: 'predicted_abstain_shares', label: 'Predicted Abstain Shares' },
@@ -612,10 +592,22 @@ function renderProposalsTable() {
                     } else if (field.key === 'for_percentage' || field.key === 'against_percentage') {
                         const val = proposal[field.key];
                         return `<td>${val !== undefined && val !== null ? (parseFloat(val) * 100).toFixed(2) + '%' : '-'}</td>`;
-                    } else if (['predicted_for_shares','predicted_against_shares','predicted_abstain_shares','predicted_unvoted_shares','total_for_shares','total_against_shares','total_abstain_shares','total_unvoted_shares'].includes(field.key)) {
+                    } else if (["predicted_for_shares","predicted_against_shares","predicted_abstain_shares","predicted_unvoted_shares","total_for_shares","total_against_shares","total_abstain_shares","total_unvoted_shares"].includes(field.key)) {
                         return `<td>${formatShares(proposal[field.key])}</td>`;
                     } else if (field.key === 'issuer_name') {
                         return `<td class="text-truncate" style="max-width: 150px;" title="${(proposal.issuer_name || '').replace(/\"/g, '&quot;')}">${proposal.issuer_name || '-'}</td>`;
+                    } else if (field.key === '__proposal_content') {
+                        // Show first 10 words, tooltip for full content (escaped), fallback to '-' if missing
+                        let content = (proposal.content !== undefined && proposal.content !== null) ? String(proposal.content).trim() : '';
+                        let shortContent = '-';
+                        let tooltipContent = '-';
+                        if (content.length > 0) {
+                            let words = content.split(/\s+/);
+                            shortContent = words.slice(0, 10).join(' ');
+                            if (words.length > 10) shortContent += '...';
+                            tooltipContent = escapeHtml(content);
+                        }
+                        return `<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tooltipContent}">${shortContent}</td>`;
                     } else {
                         return `<td>${proposal[field.key] !== undefined && proposal[field.key] !== null && proposal[field.key] !== '' ? proposal[field.key] : '-'}</td>`;
                     }
@@ -757,69 +749,30 @@ function applySortingToProposals() {
 function viewProposalDetails(id) {
     const proposal = proposals.find(p => p.id === id);
     if (!proposal) return;
-    
-    // Recursively render all fields, including nested objects/arrays
-    // Show all fields from the data table, in the correct order, even if missing from the object
-    function renderValue(val, key) {
-        if (key === 'for_percentage' || key === 'against_percentage' || key === 'abstain_percentage') {
-            return (val !== undefined && val !== null && val !== '') ? (parseFloat(val) * 100).toFixed(2) + '%' : 'N/A';
-        } else if (typeof val === 'boolean' || val === 0 || val === 1) {
-            if (key === 'approved' || key === 'prediction_correct') {
-                return val ? 'Yes' : 'No';
-            }
-        }
-        if (val === undefined || val === null || val === '') {
-            return 'N/A';
-        } else if (Array.isArray(val)) {
-            if (val.length === 0) return '[]';
-            return '<ul class="mb-0">' + val.map((item, idx) => `<li>${renderValue(item, idx)}</li>`).join('') + '</ul>';
-        } else if (typeof val === 'object') {
-            const keys = Object.keys(val);
-            if (keys.length === 0) return '{}';
-            return '<table class="table table-bordered table-sm mb-0"><tbody>' + keys.map(k => `<tr><td class="fw-bold">${k}</td><td>${renderValue(val[k], k)}</td></tr>`).join('') + '</tbody></table>';
-        } else {
-            return String(val);
-        }
-    }
-    function renderTable(obj) {
-        return Object.keys(obj).map(key => `<tr><td class="fw-bold">${key}</td><td>${renderValue(obj[key], key)}</td></tr>`).join('');
-    }
-    const modalContent = `
-        <div class="modal fade" id="proposalDetailsModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Proposal Details - ID: ${proposal.id}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-sm mb-0">
-                                <tbody>
-                                    ${renderTable(proposal)}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Remove existing modal if any
-    const existingModal = document.getElementById('proposalDetailsModal');
-    if (existingModal) {
-        existingModal.remove();
-    }
-    
-    // Add modal to body and show it
-    document.body.insertAdjacentHTML('beforeend', modalContent);
-    const modal = new bootstrap.Modal(document.getElementById('proposalDetailsModal'));
-    modal.show();
+
+    // Fields shown in the main table (including those with different display names)
+    const fieldLabels = {
+        id: 'ID',
+        proposal_master_skey: 'Proposal Master Key',
+        director_master_skey: 'Director Master Key',
+        issuer_name: 'Issuer Name',
+        category: 'Category',
+        prediction_correct: 'Prediction Accuracy',
+        proposal: 'Proposal',
+        approved: 'Approved Status',
+        for_percentage: 'For Percentage',
+        against_percentage: 'Against Percentage',
+        abstain_percentage: 'Abstain Percentage',
+        predicted_for_shares: 'Predicted For Shares',
+        predicted_against_shares: 'Predicted Against Shares',
+        predicted_abstain_shares: 'Predicted Abstain Shares',
+        predicted_unvoted_shares: 'Predicted Unvoted Shares'
+    };
+    // ...rest of the function logic...
 }
+
+// Expose viewProposalDetails globally for inline onclick usage
+window.viewProposalDetails = viewProposalDetails;
 
 // Account management functions
 function updateSelectedUnvotedSharesLegend() {
@@ -945,38 +898,54 @@ function setupImportForm() {
         const fileInput = document.getElementById('fileInput');
         const file = fileInput.files[0];
         
-        if (!file) {
-            showAlert('Please select a file to import', 'warning');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        try {
-            showImportProgress(true);
-            
-            const response = await fetch(`${API_BASE}/api/upload`, {
-                method: 'POST',
-                body: formData
-            });
-            
-            const result = await response.json();
-            
-            if (response.ok) {
-                showImportResults(result);
-                loadDashboardData();
-                fileInput.value = '';
-            } else {
-                showAlert('Import failed: ' + result.error, 'danger');
-            }
-            
-        } catch (error) {
-            console.error('Error importing file:', error);
-            showAlert('Error importing file', 'danger');
-        } finally {
-            showImportProgress(false);
-        }
+    try {
+        tbody.innerHTML = proposals.map(proposal => {
+            return `<tr>` +
+                succinctFields.map(field => {
+                    if (field.key === 'prediction_correct') {
+                        return `<td><span class="badge ${proposal.prediction_correct ? 'bg-success' : 'bg-danger'}">${proposal.prediction_correct ? 'Correct' : 'Incorrect'}</span></td>`;
+                    } else if (field.key === 'approved') {
+                        return `<td><span class="badge ${proposal.approved ? 'bg-success' : 'bg-secondary'}">${proposal.approved ? 'Yes' : 'No'}</span></td>`;
+                    } else if (field.key === 'for_percentage' || field.key === 'against_percentage' || field.key === 'abstain_percentage') {
+                        // Show percentage with % sign, fallback to '-'
+                        const val = proposal[field.key];
+                        return `<td>${val !== undefined && val !== null && val !== '' ? val + '%' : '-'}</td>`;
+                    } else if (field.key === 'proposal') {
+                        // Show first 10 words, tooltip for full
+                        const content = proposal.proposal || '-';
+                        const words = String(content).split(/\s+/);
+                        const truncated = words.length > 10 ? words.slice(0, 10).join(' ') + '…' : content;
+                        return `<td title="${escapeHtml(content)}">${escapeHtml(truncated)}</td>`;
+                    } else if (field.key.endsWith('_shares')) {
+                        return `<td>${formatShares(proposal[field.key])}</td>`;
+                    } else {
+                        // Default: show value or '-'
+                        const val = proposal[field.key];
+                        return `<td>${val !== undefined && val !== null && val !== '' ? escapeHtml(val) : '-'}</td>`;
+                    }
+                }).join('') +
+                `<td class="text-center">
+                    <button class="btn btn-sm btn-outline-info" onclick="showProposalConfusion(${proposal.id})" title="View Confusion Matrix">
+                        <i class="fas fa-chart-bar"></i>
+                    </button>
+                </td>` +
+                `<td>
+                    <div class="btn-group" role="group" aria-label="Actions">
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewProposalDetails(${proposal.id})" title="View Details">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="viewProposalAccounts(${proposal.id})" title="Show Accounts">
+                            <i class="fas fa-table"></i>
+                        </button>
+                    </div>
+                </td>` +
+            `</tr>`;
+        }).join('');
+        console.log('Proposals table rendered successfully');
+    } catch (error) {
+        console.error('Error rendering proposals table:', error);
+        tbody.innerHTML = '<tr><td colspan="19" class="text-center text-danger">Error rendering table</td></tr>';
+    }
     });
 }
 
@@ -3245,46 +3214,123 @@ function loadDashboard() {
     loadDashboardData();
 }
 
+// Helper: fetch all proposals from backend (all pages)
+async function fetchAllProposals() {
+    let allProposals = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+        const url = `${API_BASE}/api/proposals?page=${page}`;
+        const response = await fetchWithCredentials(url);
+        const data = await response.json();
+        if (Array.isArray(data.proposals)) {
+            allProposals = allProposals.concat(data.proposals);
+        }
+        totalPages = data.pagination && data.pagination.total_pages ? data.pagination.total_pages : 1;
+        page++;
+    } while (page <= totalPages);
+    return allProposals;
+}
+
+// ========== Confusion Matrix Filters ========== //
+let cmAllProposals = [];
+let cmFilterOptions = {
+    issuers: [],
+    categories: [],
+    subcategories: []
+};
+let cmCurrentFilters = {
+    issuer: '',
+    type: '',
+    outcome: '',
+    category: '',
+    subcategory: ''
+};
+
+function populateConfusionMatrixFilters(proposals) {
+    // Extract unique values for dropdowns
+    const issuers = Array.from(new Set(proposals.map(p => p.issuer_name).filter(Boolean))).sort();
+    const categories = Array.from(new Set(proposals.map(p => p.category).filter(Boolean))).sort();
+    const subcategories = Array.from(new Set(proposals.map(p => p.subcategory).filter(Boolean))).sort();
+    cmFilterOptions.issuers = issuers;
+    cmFilterOptions.categories = categories;
+    cmFilterOptions.subcategories = subcategories;
+    // Populate dropdowns
+    const issuerSel = document.getElementById('cmFilterIssuer');
+    const catSel = document.getElementById('cmFilterCategory');
+    const subcatSel = document.getElementById('cmFilterSubCategory');
+    if (issuerSel) {
+        issuerSel.innerHTML = '<option value="">-- ALL --</option>' + issuers.map(i => `<option value="${i}">${i}</option>`).join('');
+    }
+    if (catSel) {
+        catSel.innerHTML = '<option value="">-- ALL --</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+    if (subcatSel) {
+        subcatSel.innerHTML = '<option value="">-- ALL --</option>' + subcategories.map(s => `<option value="${s}">${s}</option>`).join('');
+    }
+}
+
+function getFilteredProposals() {
+    let arr = cmAllProposals;
+    if (cmCurrentFilters.issuer) arr = arr.filter(p => p.issuer_name === cmCurrentFilters.issuer);
+    if (cmCurrentFilters.type) arr = arr.filter(p => (p.proposal_type || '').toUpperCase() === cmCurrentFilters.type);
+    if (cmCurrentFilters.outcome) arr = arr.filter(p => {
+        if (cmCurrentFilters.outcome === 'approved') return p.approved === true || p.approved === 1;
+        if (cmCurrentFilters.outcome === 'rejected') return p.approved === false || p.approved === 0;
+        return true;
+    });
+    if (cmCurrentFilters.category) arr = arr.filter(p => p.category === cmCurrentFilters.category);
+    if (cmCurrentFilters.subcategory) arr = arr.filter(p => p.subcategory === cmCurrentFilters.subcategory);
+    return arr;
+}
+
+function updateConfusionMatrixFilters() {
+    cmCurrentFilters.issuer = document.getElementById('cmFilterIssuer')?.value || '';
+    cmCurrentFilters.type = document.getElementById('cmFilterType')?.value || '';
+    cmCurrentFilters.outcome = document.getElementById('cmFilterOutcome')?.value || '';
+    cmCurrentFilters.category = document.getElementById('cmFilterCategory')?.value || '';
+    cmCurrentFilters.subcategory = document.getElementById('cmFilterSubCategory')?.value || '';
+    // Recalculate and render
+    const filtered = getFilteredProposals();
+    const confusionData = calculateRealConfusionMatrix(null, filtered);
+    renderConfusionMatrix(confusionData);
+}
+
 // Show proposal confusion matrix
 async function showProposalConfusion(proposalId = null) {
+    // ...existing code...
+}
+// Expose to global scope for HTML event handlers
+window.showProposalConfusion = showProposalConfusion;
     console.log('showProposalConfusion called with proposalId:', proposalId);
-    
     try {
         // First, check if confusion matrix exists in DOM, if not restore it
         let confusionContainer = document.getElementById('confusionMatrixContainer');
         if (!confusionContainer && window.confusionMatrixHTML && window.confusionMatrixParent) {
             console.log('Restoring confusion matrix to DOM...');
-            // Restore the confusion matrix to the DOM
             window.confusionMatrixParent.insertAdjacentHTML('beforeend', window.confusionMatrixHTML);
             confusionContainer = document.getElementById('confusionMatrixContainer');
         }
-        
         const proposalsSection = document.getElementById('proposals-section');
         const confusionTableDiv = document.getElementById('confusionMatrixTable');
-        
         console.log('Debug: Elements found:', {
             confusionContainer: !!confusionContainer,
             proposalsSection: !!proposalsSection,
             confusionTableDiv: !!confusionTableDiv
         });
-        
         if (!confusionContainer) {
             console.error('confusionMatrixContainer not found and could not be restored!');
             showAlert('Confusion matrix container not found in DOM', 'danger');
             return;
         }
-        
         if (!confusionTableDiv) {
             console.error('confusionMatrixTable not found!');
             showAlert('Confusion matrix table element not found in DOM', 'danger');
             return;
         }
-        
         // Hide all other sections and show confusion matrix
         document.querySelectorAll('.content-section').forEach(el => el.style.display = 'none');
         if (proposalsSection) proposalsSection.style.display = 'none';
-        
-        // Show confusion matrix with all visibility properties
         confusionContainer.style.display = 'block';
         confusionContainer.style.opacity = '1';
         confusionContainer.style.visibility = 'visible';
@@ -3293,25 +3339,16 @@ async function showProposalConfusion(proposalId = null) {
         confusionContainer.style.removeProperty('top');
         confusionContainer.style.removeProperty('z-index');
         confusionContainer.classList.remove('hidden');
-        
-        // Scroll to top
         confusionContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        
-        // Prepare title
-        let titleText = 'All Proposals';
-        
+        let titleText = 'Confusion Matrix and Predicted Shares Variances';
         if (proposalId) {
             const proposal = proposals.find(p => p.id == proposalId);
-            titleText = proposal ? `Proposal ${proposalId} (${proposal.issuer_name || 'Unknown'})` : `Proposal ${proposalId}`;
+            titleText += proposal ? `: Proposal ${proposalId} (${proposal.issuer_name || 'Unknown'})` : `: Proposal ${proposalId}`;
         }
-        
-        // Update title
         const titleElement = confusionContainer.querySelector('h4');
         if (titleElement) {
-            titleElement.innerHTML = `<i class="fas fa-chart-bar me-2"></i>Confusion Matrix - ${titleText}`;
+            titleElement.innerHTML = `<i class="fas fa-chart-bar me-2"></i>${titleText}`;
         }
-        
-        // Show loading state briefly
         confusionTableDiv.innerHTML = `
             <div class="text-center p-4">
                 <div class="spinner-border text-primary" role="status">
@@ -3320,49 +3357,30 @@ async function showProposalConfusion(proposalId = null) {
                 <p class="mt-2">Calculating confusion matrix from proposal data...</p>
             </div>
         `;
-        
-        // Calculate and show real confusion matrix data using ALL proposals
-        setTimeout(async () => {
-            // If showing all proposals, fetch all pages
-            if (!proposalId) {
-                try {
-                    const allProposals = await fetchAllProposals();
-                    if (Array.isArray(allProposals) && allProposals.length > 0) {
-                        proposals = allProposals;
-                    }
-                } catch (e) {
-                    console.error('Failed to fetch all proposals for confusion matrix:', e);
-                }
+        ['accuracyMetric', 'precisionMetric', 'recallMetric', 'f1Metric'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = '-';
+            } else {
+                console.warn(`Metric element ${id} not found`);
             }
-            const confusionData = calculateRealConfusionMatrix(proposalId);
-            renderConfusionMatrix(confusionData);
-        }, 300); // Brief loading animation
-        
-        /* 
-        // Uncomment when API endpoint is ready:
-        // Prepare API call
-        let apiUrl = '/api/confusion-matrix';
-        if (proposalId) {
-            apiUrl += `?proposal_id=${proposalId}`;
-        }
-        
-        // Fetch confusion matrix data
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        // Render confusion matrix
-        renderConfusionMatrix(data);
-        */
-        
+        });
+        // Fetch all proposals for confusion matrix (do not overwrite paginated proposals)
+        await (async () => {
+            let allProposals = await fetchAllProposals();
+            cmAllProposals = allProposals;
+            populateConfusionMatrixFilters(allProposals);
+            // Reset filters
+            cmCurrentFilters = { issuer: '', type: '', outcome: '', category: '', subcategory: '' };
+            // Use allProposals for confusion matrix calculation
+            setTimeout(() => {
+                const filtered = getFilteredProposals();
+                const confusionData = calculateRealConfusionMatrix(proposalId, filtered);
+                renderConfusionMatrix(confusionData);
+            }, 300);
+        })();
     } catch (error) {
         console.error('Error loading confusion matrix:', error);
-        
-        // Show error state and placeholder data
         const confusionTableDiv = document.getElementById('confusionMatrixTable');
         if (confusionTableDiv) {
             confusionTableDiv.innerHTML = `
@@ -3373,8 +3391,6 @@ async function showProposalConfusion(proposalId = null) {
                 </div>
             `;
         }
-        
-        // Show error state but still try to show real data if possible
         setTimeout(() => {
             const confusionData = calculateRealConfusionMatrix(proposalId);
             renderConfusionMatrix(confusionData);
@@ -3384,184 +3400,90 @@ async function showProposalConfusion(proposalId = null) {
 
 // Render confusion matrix table and metrics
 function renderConfusionMatrix(data) {
-    // Default structure if no data provided
-    const matrix = data.matrix || {
-        'true_positive': 85,
-        'false_positive': 12,
-        'false_negative': 8,
-        'true_negative': 95
-    };
-    const metrics = data.metrics || calculateMetrics(matrix);
-    const dataInfo = data.dataInfo || null;
-
-    // --- Delta1 and Delta2 Regression Metrics ---
-    // Helper: calculate Delta1 and Delta2 for a proposal
-    function calcDelta1(p) {
-        // Delta1 = |Predicted For Shares - True For Shares| / True For Shares
-        const pred = Number(p.predicted_for_shares);
-        const truth = Number(p.total_for_shares);
-        if (!isFinite(pred) || !isFinite(truth) || truth === 0) return null;
-        return Math.abs(pred - truth) / Math.abs(truth);
+    // Always use real data: if data is missing, calculate from all proposals
+    let matrix, metrics, dataInfo, delta1, delta2, delta1Arr, delta2Arr, isSingleProposal = false;
+    if (!data || !data.matrix) {
+        const realData = calculateRealConfusionMatrix();
+        matrix = realData.matrix;
+        metrics = realData.metrics;
+        dataInfo = realData.dataInfo;
+        delta1 = realData.delta1;
+        delta2 = realData.delta2;
+        delta1Arr = realData.delta1Arr;
+        delta2Arr = realData.delta2Arr;
+        console.log('[DEBUG] Used calculateRealConfusionMatrix() for confusion matrix and deltas.');
+    } else {
+        matrix = data.matrix;
+        metrics = data.metrics || calculateMetrics(matrix);
+        dataInfo = data.dataInfo || null;
+        delta1 = data.delta1;
+        delta2 = data.delta2;
+        delta1Arr = data.delta1Arr;
+        delta2Arr = data.delta2Arr;
+        console.log('[DEBUG] Used provided data for confusion matrix and deltas.');
     }
-    function calcDelta2(p) {
-        // Delta2 = |(Pred For Shares / (Pred For + Pred Against + Pred Abstain)) - (True For Shares / (True For + True Against + True Abstain))|
-        const predFor = Number(p.predicted_for_shares);
-        const predAgainst = Number(p.predicted_against_shares);
-        const predAbstain = Number(p.predicted_abstain_shares);
-        const trueFor = Number(p.total_for_shares);
-        const trueAgainst = Number(p.total_against_shares);
-        const trueAbstain = Number(p.total_abstain_shares);
-        const predDenom = predFor + predAgainst + predAbstain;
-        const trueDenom = trueFor + trueAgainst + trueAbstain;
-        if (!isFinite(predFor) || !isFinite(predAgainst) || !isFinite(predAbstain) || predDenom === 0 ||
-            !isFinite(trueFor) || !isFinite(trueAgainst) || !isFinite(trueAbstain) || trueDenom === 0) return null;
-        return Math.abs((predFor / predDenom) - (trueFor / trueDenom));
-    }
+    // Debug: log delta arrays and their lengths
+    console.log('[DEBUG] delta1Arr:', delta1Arr, 'length:', delta1Arr ? delta1Arr.length : 'null');
+    console.log('[DEBUG] delta2Arr:', delta2Arr, 'length:', delta2Arr ? delta2Arr.length : 'null');
+    // Determine if this is a single proposal or multiple
+    isSingleProposal = (delta1Arr && delta1Arr.length === 1) || (dataInfo && dataInfo.validProposals === 1);
 
-    let delta1Arr = [], delta2Arr = [], isSingleProposal = false;
-    let proposalsArr = [];
-    // Try to get proposals array from dataInfo, or fallback to global proposals
-    if (dataInfo && Array.isArray(dataInfo.proposals) && dataInfo.proposals.length > 0) {
-        proposalsArr = dataInfo.proposals;
-    } else if (typeof proposals !== 'undefined' && Array.isArray(proposals) && proposals.length > 0) {
-        proposalsArr = proposals;
-    }
-
-    // Only use proposals with all required fields for both metrics
-    const validProposals = proposalsArr.filter(p => {
-        // For Delta1: need predicted_for_shares and total_for_shares
-        // For Delta2: need predicted_for_shares, predicted_against_shares, predicted_abstain_shares, total_for_shares, total_against_shares, total_abstain_shares
-        const hasDelta1 = p.predicted_for_shares !== undefined && p.total_for_shares !== undefined && p.total_for_shares !== 0;
-        const hasDelta2 = p.predicted_for_shares !== undefined && p.predicted_against_shares !== undefined && p.predicted_abstain_shares !== undefined &&
-            p.total_for_shares !== undefined && p.total_against_shares !== undefined && p.total_abstain_shares !== undefined;
-        // Also check for non-null and finite
-        return hasDelta1 && hasDelta2 &&
-            isFinite(Number(p.predicted_for_shares)) && isFinite(Number(p.total_for_shares)) &&
-            isFinite(Number(p.predicted_against_shares)) && isFinite(Number(p.predicted_abstain_shares)) &&
-            isFinite(Number(p.total_against_shares)) && isFinite(Number(p.total_abstain_shares));
-    });
-
-    if (dataInfo && dataInfo.validProposals === 1 && validProposals.length === 1) {
-        isSingleProposal = true;
-        delta1Arr = [calcDelta1(validProposals[0])];
-        delta2Arr = [calcDelta2(validProposals[0])];
-    } else if (validProposals.length > 0) {
-        delta1Arr = validProposals.map(calcDelta1).filter(v => v !== null && v !== undefined);
-        delta2Arr = validProposals.map(calcDelta2).filter(v => v !== null && v !== undefined);
-    }
-    // If no valid proposals, arrays remain empty
-
-    // --- Filter Dropdowns ---
-    function getUniqueFiltered(arr, key) {
-        return Array.from(new Set(arr.map(x => x && x[key] != null ? x[key] : '').filter(Boolean))).sort();
-    }
-    
-    // Try multiple possible field names for robustness
-    function getUniqueMultiKey(arr, keys) {
-        const allValues = [];
-        keys.forEach(key => {
-            const values = arr.map(x => x && x[key] != null ? x[key] : '').filter(Boolean);
-            allValues.push(...values);
-        });
-        return Array.from(new Set(allValues)).sort();
-    }
-    
-    const allProposals = Array.isArray(proposals) ? proposals : [];
-    const issuers = getUniqueFiltered(allProposals, 'issuer_name');
-    const types = getUniqueFiltered(allProposals, 'proposal_type');
-    // Try both 'category' and 'categorization' field names
-    const categorizations = getUniqueMultiKey(allProposals, ['category', 'categorization']);
-    // Try both 'subcategory' and 'subcategorization' field names  
-    const subcategorizations = getUniqueMultiKey(allProposals, ['subcategory', 'subcategorization']);
-    const trueOutcomes = ['Approved', 'Rejected'];
-
-    // Debug: log the extracted values to help troubleshoot
-    console.log('[DEBUG] Filter options extracted:', {
-        issuers: issuers.length,
-        types: types.length, 
-        categorizations: categorizations,
-        subcategorizations: subcategorizations
-    });
-
-    const filterState = window.confusionMatrixFilters || {
-        issuer: '-- ALL --',
-        type: '-- ALL --',
-        outcome: '-- ALL --',
-        categorization: '-- ALL --',
-        subcategorization: '-- ALL --'
-    };
-    function makeDropdown(id, label, options, selected) {
-        return `<div class="me-2 mb-2"><label for="${id}" class="form-label mb-1">${label}</label><select class="form-select form-select-sm" id="${id}">
-            <option${selected === '-- ALL --' ? ' selected' : ''}>-- ALL --</option>
-            ${options.map(opt => `<option${selected === opt ? ' selected' : ''}>${opt}</option>`).join('')}
-        </select></div>`;
-    }
-    const filtersHtml = `
-        <div class="d-flex flex-wrap align-items-end mb-3" id="confusionMatrixFiltersRow" style="background: #f8f9fa; border-radius: 6px; padding: 8px 0; min-height: 48px;">
-            ${makeDropdown('filterIssuer', 'Issuers', issuers, filterState.issuer)}
-            ${makeDropdown('filterType', 'Proposal Type', types, filterState.type)}
-            ${makeDropdown('filterOutcome', 'True Outcome', trueOutcomes, filterState.outcome)}
-            ${makeDropdown('filterCategorization', 'Categorization', categorizations, filterState.categorization)}
-            ${makeDropdown('filterSubcategorization', 'SubCategorization', subcategorizations, filterState.subcategorization)}
-        </div>
-    `;
-    // Debug: log the filtersHtml to ensure it is being generated
-    console.log('[DEBUG] Confusion Matrix Filters HTML:', filtersHtml);
-    const matrixCol = `<div class="col-lg-4 col-md-12 mb-3">
-        <div class="card h-100">
-            <div class="card-header bg-light"><b>Confusion Matrix and Predicted Shares Variances</b></div>
-            <div class="card-body">
-                <table class="table table-bordered text-center mb-3" style="width: 100%; max-width: 400px; margin: 0 auto;">
-                    <thead>
-                        <tr>
-                            <th class="bg-light"></th>
-                            <th class="bg-primary text-white">Predicted YES</th>
-                            <th class="bg-primary text-white">Predicted NO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <th class="bg-primary text-white">Actual YES</th>
-                            <td style="vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.true_positive || 0}</td>
-                            <td style="vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.false_negative || 0}</td>
-                        </tr>
-                        <tr>
-                            <th class="bg-primary text-white">Actual NO</th>
-                            <td style="vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.false_positive || 0}</td>
-                            <td style="vertical-align: middle; font-size: 24px; font-weight: bold;">${matrix.true_negative || 0}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                ${dataInfo ? `<div class="alert ${dataInfo.validProposals > 0 ? 'alert-info' : 'alert-warning'} mb-3"><i class="fas fa-info-circle me-2"></i><strong>Data Source:</strong> ${dataInfo.message}<br><small>Analyzed ${dataInfo.validProposals} of ${dataInfo.totalProposals} total proposals</small></div>` : ''}
-                <div class="row g-2">
-                    <div class="col-6">
-                        <div class="card bg-success text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Accuracy</h6><h5 class="mb-0" id="accuracyMetric">${(metrics.accuracy * 100).toFixed(1)}%</h5></div></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="card bg-info text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Precision</h6><h5 class="mb-0" id="precisionMetric">${(metrics.precision * 100).toFixed(1)}%</h5></div></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="card bg-warning text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Recall</h6><h5 class="mb-0" id="recallMetric">${(metrics.recall * 100).toFixed(1)}%</h5></div></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="card bg-secondary text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">F1-Score</h6><h5 class="mb-0" id="f1Metric">${(metrics.f1_score * 100).toFixed(1)}%</h5></div></div>
-                    </div>
+    // Layout: 3 columns (full width): Confusion Matrix | Delta1 | Delta2
+    // Use col-12 for the row, and col-lg-4 for each column to span full width on large screens (now: 3 columns, no extra metrics)
+    const matrixCol = `
+        <div class="col-lg-4 col-md-12 mb-3">
+            <table class="table table-bordered text-center mb-3 w-100" style="max-width: 500px; margin: 0 auto;">
+                <thead>
+                    <tr>
+                        <th class="bg-light"></th>
+                        <th class="bg-primary text-white">Predicted YES</th>
+                        <th class="bg-primary text-white">Predicted NO</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th class="bg-primary text-white">Actual YES</th>
+                        <td class="align-middle fs-5 fw-bold">${matrix.true_positive || 0}</td>
+                        <td class="align-middle fs-5 fw-bold">${matrix.false_negative || 0}</td>
+                    </tr>
+                    <tr>
+                        <th class="bg-primary text-white">Actual NO</th>
+                        <td class="align-middle fs-5 fw-bold">${matrix.false_positive || 0}</td>
+                        <td class="align-middle fs-5 fw-bold">${matrix.true_negative || 0}</td>
+                    </tr>
+                </tbody>
+            </table>
+            ${dataInfo ? `<div class=\"alert ${dataInfo.validProposals > 0 ? 'alert-info' : 'alert-warning'} mb-3\"><i class=\"fas fa-info-circle me-2\"></i><strong>Data Source:</strong> ${dataInfo.message}<br><small>Analyzed ${dataInfo.validProposals} of ${dataInfo.totalProposals} total proposals</small></div>` : ''}
+            <div class="row g-2">
+                <div class="col-6">
+                    <div class="card bg-success text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Accuracy</h6><h5 class="mb-0" id="accuracyMetric">${(metrics.accuracy * 100).toFixed(1)}%</h5></div></div>
+                </div>
+                <div class="col-6">
+                    <div class="card bg-info text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Precision</h6><h5 class="mb-0" id="precisionMetric">${(metrics.precision * 100).toFixed(1)}%</h5></div></div>
+                </div>
+                <div class="col-6">
+                    <div class="card bg-warning text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">Recall</h6><h5 class="mb-0" id="recallMetric">${(metrics.recall * 100).toFixed(1)}%</h5></div></div>
+                </div>
+                <div class="col-6">
+                    <div class="card bg-secondary text-white"><div class="card-body text-center p-2"><h6 class="card-title mb-1">F1-Score</h6><h5 class="mb-0" id="f1Metric">${(metrics.f1_score * 100).toFixed(1)}%</h5></div></div>
                 </div>
             </div>
         </div>
-    </div>`;
+    `;
 
     // Delta1 column: For Shares error
     let delta1Col = `<div class="col-lg-4 col-md-12 mb-3">
         <div class="card h-100">
             <div class="card-header bg-light"><b>Delta1: For Shares Error</b></div>
             <div class="card-body">
-                <div class="mb-2"><b>Formula:</b><br><code>Delta1 = |Pred For Shares - True For Shares| / True For Shares</code></div>
-                <div class="mb-2 text-muted">Measures the relative error between predicted and true For Shares. 0 is perfect.</div>`;
+                <div class="mb-2"><b>Formula:</b><br><code>Delta1 = |Predicted For Shares - True For Shares| / True For Shares</code></div>
+                <div class="mb-2 text-muted">Measures the relative error between predicted and true For Shares. 0 is perfect.</div>
+`;
     if (isSingleProposal && delta1Arr && delta1Arr.length === 1) {
         delta1Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta1Arr[0] !== undefined ? delta1Arr[0].toFixed(4) : 'N/A'}</span></div>`;
     } else if (delta1Arr && delta1Arr.length > 1) {
-        delta1Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta1Histogram" height="240"></canvas></div>`;
+        // Histogram for multiple proposals
+        delta1Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta1Histogram" height="120"></canvas></div>`;
     } else {
         delta1Col += `<div class="mb-2">No Delta1 data available.</div>`;
     }
@@ -3586,11 +3508,13 @@ function renderConfusionMatrix(data) {
             <div class="card-header bg-light"><b>Delta2: For Voting Ratio Error</b></div>
             <div class="card-body">
                 <div class="mb-2"><b>Formula:</b><br><code>Delta2 = |(Pred For Shares / (Pred For + Pred Against + Pred Abstain)) - (True For Shares / (True For + True Against + True Abstain))|</code></div>
-                <div class="mb-2 text-muted">Measures the error in predicted vs. true For voting ratio. 0 is perfect.</div>`;
+                <div class="mb-2 text-muted">Measures the error in predicted vs. true For voting ratio. 0 is perfect.</div>
+`;
     if (isSingleProposal && delta2Arr && delta2Arr.length === 1) {
         delta2Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta2Arr[0] !== undefined ? delta2Arr[0].toFixed(4) : 'N/A'}</span></div>`;
     } else if (delta2Arr && delta2Arr.length > 1) {
-        delta2Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta2Histogram" height="240"></canvas></div>`;
+        // Histogram for multiple proposals
+        delta2Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta2Histogram" height="120"></canvas></div>`;
     } else {
         delta2Col += `<div class="mb-2">No Delta2 data available.</div>`;
     }
@@ -3609,63 +3533,12 @@ function renderConfusionMatrix(data) {
     }
     delta2Col += `<div class="small text-muted">Lower is better. Larger Delta2 means greater variance between predicted and true For voting ratio.</div></div></div></div>`;
 
-    // Render the filter row full width, then the 3 analytics columns below
-    const html = `
-        <div class="row w-100 mx-0">
-            <div class="col-12 mb-2">
-                ${filtersHtml}
-            </div>
-        </div>
-        <div class="row g-3 align-items-stretch w-100 mx-0">
-            ${matrixCol}${delta1Col}${delta2Col}
-        </div>
-    `;
-    const cmTableDiv = document.getElementById('confusionMatrixTable');
-    if (!cmTableDiv) {
-        console.error('[ERROR] confusionMatrixTable element not found in DOM!');
-        return;
-    }
-    cmTableDiv.innerHTML = html;
-    // No Additional Metrics section is rendered here. If any block/div for Additional Metrics existed, it is now fully removed.
-
-    // ========== Confusion Matrix Filters ==========
-    // Set up event handlers for filter dropdowns with real-time filtering
-    setTimeout(() => {
-        const filterIssuer = document.getElementById('filterIssuer');
-        const filterType = document.getElementById('filterType');
-        const filterOutcome = document.getElementById('filterOutcome');
-        const filterCategorization = document.getElementById('filterCategorization');
-        const filterSubcategorization = document.getElementById('filterSubcategorization');
-
-        // Real-time filtering function
-        function applyFiltersRealtime() {
-            // Collect filter values
-            const filters = {
-                issuer: filterIssuer ? filterIssuer.value : '-- ALL --',
-                type: filterType ? filterType.value : '-- ALL --',
-                outcome: filterOutcome ? filterOutcome.value : '-- ALL --',
-                categorization: filterCategorization ? filterCategorization.value : '-- ALL --',
-                subcategorization: filterSubcategorization ? filterSubcategorization.value : '-- ALL --'
-            };
-
-            // Store in global state
-            window.confusionMatrixFilters = filters;
-            console.log('Applied confusion matrix filters in real-time:', filters);
-
-            // Re-render with filters
-            const confusionData = calculateRealConfusionMatrix();
-            renderConfusionMatrix(confusionData);
-        }
-
-        // Apply real-time filtering on dropdown changes
-        [filterIssuer, filterType, filterOutcome, filterCategorization, filterSubcategorization].forEach(dropdown => {
-            if (dropdown) {
-                dropdown.addEventListener('change', applyFiltersRealtime);
-            }
-        });
-    }, 100); // Small delay to ensure DOM elements are rendered
+    // Render the 3-column layout, full width (no additional metrics column)
+    const html = `<div class="row g-3 align-items-stretch w-100 mx-0">${matrixCol}${delta1Col}${delta2Col}</div>`;
+    document.getElementById('confusionMatrixTable').innerHTML = html;
 
     // If histograms are needed, render them (using Chart.js if available)
+    // Helper to bin data for histogram
     function createHistogramBins(arr, binCount = 10, minVal = null, maxVal = null) {
         if (!arr || arr.length === 0) return { bins: [], counts: [] };
         const min = minVal !== null ? minVal : Math.min(...arr);
@@ -3679,7 +3552,8 @@ function renderConfusionMatrix(data) {
         const counts = Array(binCount).fill(0);
         for (let i = 0; i < binCount; i++) {
             const binStart = min + i * binSize;
-            bins.push(`${binStart.toFixed(2)}`);
+            const binEnd = binStart + binSize;
+            bins.push(`${binStart.toFixed(2)}-${binEnd.toFixed(2)}`);
         }
         arr.forEach(v => {
             let idx = Math.floor((v - min) / binSize);
@@ -3689,105 +3563,56 @@ function renderConfusionMatrix(data) {
         return { bins, counts };
     }
 
-    // Debug: log delta arrays and canvas presence
-    if (!isSingleProposal) {
-        console.log('[DEBUG] delta1Arr:', delta1Arr);
-        console.log('[DEBUG] delta2Arr:', delta2Arr);
-        const c1 = document.getElementById('delta1Histogram');
-        const c2 = document.getElementById('delta2Histogram');
-        console.log('[DEBUG] delta1Histogram canvas:', !!c1);
-        console.log('[DEBUG] delta2Histogram canvas:', !!c2);
-    }
-
-    // Helper to destroy old charts if present (prevents Chart.js error)
-    if (!window._deltaCharts) window._deltaCharts = {};
-    function destroyChart(id) {
-        if (window._deltaCharts[id]) {
-            try { window._deltaCharts[id].destroy(); } catch(e) {}
-            window._deltaCharts[id] = null;
-        }
-    }
-
-    // Helper to load Chart.js dynamically if not present
-    function ensureChartJsLoaded(callback) {
-        if (typeof Chart !== 'undefined') {
-            callback();
-            return;
-        }
-        // Check if already loading
-        if (window._chartJsLoading) {
-            const interval = setInterval(() => {
-                if (typeof Chart !== 'undefined') {
-                    clearInterval(interval);
-                    callback();
+    if (!isSingleProposal && delta1Arr && delta1Arr.length > 1) {
+        const chartLoaded = typeof Chart !== 'undefined';
+        const canvas1 = document.getElementById('delta1Histogram');
+        console.log('[DEBUG] Chart.js loaded:', chartLoaded, '| delta1Histogram canvas:', !!canvas1);
+        if (chartLoaded && canvas1) {
+            const { bins, counts } = createHistogramBins(delta1Arr, 10);
+            const ctx1 = canvas1.getContext('2d');
+            new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: bins,
+                    datasets: [{ label: 'Delta1 Count', data: counts, backgroundColor: 'rgba(54, 162, 235, 0.6)' }]
+                },
+                options: {
+                    scales: {
+                        x: { title: { display: true, text: 'Delta1 Range' } },
+                        y: { title: { display: true, text: 'Count' }, beginAtZero: true, precision: 0 }
+                    }
                 }
-            }, 50);
-            return;
-        }
-        window._chartJsLoading = true;
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-        script.onload = () => {
-            window._chartJsLoading = false;
-            callback();
-        };
-        document.head.appendChild(script);
-    }
-
-    // Render Delta1 and Delta2 histograms (with Chart.js auto-load)
-    function renderDeltaHistograms() {
-        // Delta1
-        if (!isSingleProposal && delta1Arr && delta1Arr.length > 1) {
-            const canvas1 = document.getElementById('delta1Histogram');
-            if (typeof Chart !== 'undefined' && canvas1 && canvas1.offsetParent !== null) {
-                destroyChart('delta1');
-                const { bins, counts } = createHistogramBins(delta1Arr, 10);
-                const ctx1 = canvas1.getContext('2d');
-                window._deltaCharts['delta1'] = new Chart(ctx1, {
-                    type: 'bar',
-                    data: {
-                        labels: bins,
-                        datasets: [{ label: 'Delta1 Count', data: counts, backgroundColor: 'rgba(54, 162, 235, 0.6)' }]
-                    },
-                    options: {
-                        animation: false,
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: { x: { title: { display: true, text: 'Delta1' } }, y: { beginAtZero: true, title: { display: true, text: 'Count' } } },
-                        plugins: { legend: { display: false } }
-                    }
-                });
-            }
-        }
-        // Delta2
-        if (!isSingleProposal && delta2Arr && delta2Arr.length > 1) {
-            const canvas2 = document.getElementById('delta2Histogram');
-            if (typeof Chart !== 'undefined' && canvas2 && canvas2.offsetParent !== null) {
-                destroyChart('delta2');
-                const { bins, counts } = createHistogramBins(delta2Arr, 10);
-                const ctx2 = canvas2.getContext('2d');
-                window._deltaCharts['delta2'] = new Chart(ctx2, {
-                    type: 'bar',
-                    data: {
-                        labels: bins,
-                        datasets: [{ label: 'Delta2 Count', data: counts, backgroundColor: 'rgba(255, 99, 132, 0.6)' }]
-                    },
-                    options: {
-                        animation: false,
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: { x: { title: { display: true, text: 'Delta2' } }, y: { beginAtZero: true, title: { display: true, text: 'Count' } } },
-                        plugins: { legend: { display: false } }
-                    }
-                });
-            }
+            });
+        } else {
+            if (!chartLoaded) console.warn('[WARN] Chart.js is not loaded.');
+            if (!canvas1) console.warn('[WARN] delta1Histogram canvas not found in DOM.');
         }
     }
-
-    // Always ensure Chart.js is loaded before rendering histograms
-    ensureChartJsLoaded(renderDeltaHistograms);
-    // Old rendering left for reference:
-    // document.getElementById('confusionMatrixTable').innerHTML = matrixHtml;
+    if (!isSingleProposal && delta2Arr && delta2Arr.length > 1) {
+        const chartLoaded = typeof Chart !== 'undefined';
+        const canvas2 = document.getElementById('delta2Histogram');
+        console.log('[DEBUG] Chart.js loaded:', chartLoaded, '| delta2Histogram canvas:', !!canvas2);
+        if (chartLoaded && canvas2) {
+            const { bins, counts } = createHistogramBins(delta2Arr, 10);
+            const ctx2 = canvas2.getContext('2d');
+            new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: bins,
+                    datasets: [{ label: 'Delta2 Count', data: counts, backgroundColor: 'rgba(255, 99, 132, 0.6)' }]
+                },
+                options: {
+                    scales: {
+                        x: { title: { display: true, text: 'Delta2 Range' } },
+                        y: { title: { display: true, text: 'Count' }, beginAtZero: true, precision: 0 }
+                    }
+                }
+            });
+        } else {
+            if (!chartLoaded) console.warn('[WARN] Chart.js is not loaded.');
+            if (!canvas2) console.warn('[WARN] delta2Histogram canvas not found in DOM.');
+        }
+    }
 }
 
 // Calculate metrics from confusion matrix
@@ -3807,95 +3632,25 @@ function calculateMetrics(matrix) {
 }
 
 // Calculate real confusion matrix from proposals data
-function calculateRealConfusionMatrix(proposalId = null) {
-    // Accept optional filterState as second argument
-    let filterState = window.confusionMatrixFilters || null;
-    console.log('Calculating real confusion matrix for proposalId:', proposalId, 'with filters:', filterState);
-
-    // Debug: Log initial proposals data structure
-    if (proposals && proposals.length > 0) {
-        console.log('[DEBUG] Sample proposal structure:', {
-            totalProposals: proposals.length,
-            sampleKeys: Object.keys(proposals[0] || {}),
-            firstProposal: proposals[0]
-        });
-    } else {
-        console.warn('[DEBUG] No proposals data available for confusion matrix');
-    }
-
-    // Filter proposals based on proposalId if provided
-    let dataToAnalyze = proposals;
+// Calculate real confusion matrix and deltas from proposals data
+function calculateRealConfusionMatrix(proposalId = null, proposalsInput = null) {
+    console.log('Calculating real confusion matrix for proposalId:', proposalId);
+    // Use proposalsInput if provided, otherwise global proposals
+    let dataToAnalyze = proposalsInput || proposals;
     if (proposalId && proposalId !== null) {
-        dataToAnalyze = proposals.filter(p => p.id == proposalId);
+        dataToAnalyze = dataToAnalyze.filter(p => p.id == proposalId);
         console.log(`Filtered to ${dataToAnalyze.length} proposal(s) for ID ${proposalId}`);
     } else {
         console.log(`Analyzing all ${dataToAnalyze.length} proposals`);
     }
-
-    // Apply filters if present
-    if (filterState) {
-        dataToAnalyze = dataToAnalyze.filter(p => {
-            let pass = true;
-            if (filterState.issuer && filterState.issuer !== '-- ALL --') pass = pass && p.issuer_name === filterState.issuer;
-            if (filterState.type && filterState.type !== '-- ALL --') pass = pass && p.proposal_type === filterState.type;
-            if (filterState.outcome && filterState.outcome !== '-- ALL --') {
-                if (filterState.outcome === 'Approved') pass = pass && (p.approved === true || p.approved === 1);
-                if (filterState.outcome === 'Rejected') pass = pass && (p.approved === false || p.approved === 0);
-            }
-            // Handle both possible field names for categorization  
-            if (filterState.categorization && filterState.categorization !== '-- ALL --') {
-                pass = pass && (p.categorization === filterState.categorization || p.category === filterState.categorization);
-            }
-            // Handle both possible field names for subcategorization
-            if (filterState.subcategorization && filterState.subcategorization !== '-- ALL --') {
-                pass = pass && (p.subcategorization === filterState.subcategorization || p.subcategory === filterState.subcategorization);
-            }
-            return pass;
-        });
-        console.log(`Filtered to ${dataToAnalyze.length} proposals after applying filters`);
-    }
-
     // Filter out proposals without the required data
     const validProposals = dataToAnalyze.filter(p => {
-        // Check for approval data - try multiple field names that might be used
-        const hasApprovalData = p.approved !== undefined && p.approved !== null ||
-                               p.proposal_approved !== undefined && p.proposal_approved !== null ||
-                               p.outcome !== undefined && p.outcome !== null;
-        
-        // Check for prediction data - try multiple field names and patterns
-        const hasPredictionData = 
-            // Method 1: Has prediction shares data
-            (p.predicted_for_shares !== undefined && p.predicted_against_shares !== undefined) ||
-            // Method 2: Has prediction_correct field
-            p.prediction_correct !== undefined ||
-            // Method 3: Has any prediction model fields
-            Object.keys(p).some(key => key.includes('prediction') || key.includes('predict')) ||
-            // Method 4: Has target encoded or score model fields (common in ML datasets)
-            p.Target_encoded !== undefined || 
-            Object.keys(p).some(key => key.includes('score_model'));
-        
-        const isValid = hasApprovalData && hasPredictionData;
-        
-        // Debug logging for first few proposals
-        if (dataToAnalyze.indexOf(p) < 5) {
-            console.log(`[DEBUG] Proposal ${p.id || 'unknown'} validation:`, {
-                hasApprovalData,
-                hasPredictionData,
-                isValid,
-                approvalFields: ['approved', 'proposal_approved', 'outcome'].filter(field => p[field] !== undefined),
-                predictionFields: Object.keys(p).filter(key => 
-                    key.includes('prediction') || key.includes('predict') || 
-                    key.includes('score_model') || key === 'Target_encoded'
-                ),
-                sampleFields: Object.keys(p).slice(0, 10)
-            });
-        }
-        
-        return isValid;
+        const hasApprovalData = p.approved !== undefined && p.approved !== null;
+        const hasPredictionData = (p.predicted_for_shares !== undefined && p.predicted_against_shares !== undefined) ||
+                                  p.prediction_correct !== undefined;
+        return hasApprovalData && hasPredictionData;
     });
-
     console.log(`Found ${validProposals.length} proposals with valid data for confusion matrix`);
-
     if (validProposals.length === 0) {
         console.warn('No valid proposals found for confusion matrix calculation');
         // Return placeholder data if no valid data
@@ -3910,70 +3665,38 @@ function calculateRealConfusionMatrix(proposalId = null) {
             dataInfo: {
                 totalProposals: dataToAnalyze.length,
                 validProposals: 0,
-                message: 'No valid prediction data available',
-                proposals: dataToAnalyze  // Include filtered proposals even if no valid data
-            }
+                message: 'No valid prediction data available'
+            },
+            delta1: 0,
+            delta2: 0,
+            delta1Arr: [],
+            delta2Arr: []
         };
     }
-
     // Calculate confusion matrix values
     let truePositive = 0;   // Predicted Approved, Actually Approved
     let falsePositive = 0;  // Predicted Approved, Actually Rejected
     let falseNegative = 0;  // Predicted Rejected, Actually Approved
     let trueNegative = 0;   // Predicted Rejected, Actually Rejected
-
-    validProposals.forEach((proposal, index) => {
-        // Determine actual approval - try multiple field names
-        let actuallyApproved = false;
-        if (proposal.approved !== undefined && proposal.approved !== null) {
-            actuallyApproved = proposal.approved === true || proposal.approved === 1 || proposal.approved === '1';
-        } else if (proposal.proposal_approved !== undefined && proposal.proposal_approved !== null) {
-            actuallyApproved = proposal.proposal_approved === true || proposal.proposal_approved === 1 || proposal.proposal_approved === '1';
-        } else if (proposal.outcome !== undefined && proposal.outcome !== null) {
-            actuallyApproved = proposal.outcome === 'approved' || proposal.outcome === 'Approved' || proposal.outcome === 1;
-        }
-
-        // Determine predicted approval - try multiple methods
+    validProposals.forEach(proposal => {
+        const actuallyApproved = proposal.approved === true || proposal.approved === 1;
+        // Determine predicted approval
         let predictedApproved = false;
-        let predictionMethod = 'unknown';
-
-        // Method 1: Use prediction_correct if available
-        if (proposal.prediction_correct !== undefined && proposal.prediction_correct !== null) {
-            // If prediction_correct is true, it means prediction matches reality
+        // Method 1: Use prediction_correct if available and compare with actual
+        if (proposal.prediction_correct !== undefined) {
             predictedApproved = proposal.prediction_correct ? actuallyApproved : !actuallyApproved;
-            predictionMethod = 'prediction_correct';
         }
         // Method 2: Compare predicted_for_shares vs predicted_against_shares
         else if (proposal.predicted_for_shares !== undefined && proposal.predicted_against_shares !== undefined) {
             const forShares = parseFloat(proposal.predicted_for_shares) || 0;
             const againstShares = parseFloat(proposal.predicted_against_shares) || 0;
             predictedApproved = forShares > againstShares;
-            predictionMethod = 'predicted_shares';
         }
         // Method 3: Use for_percentage if available (>50% means predicted approved)
         else if (proposal.for_percentage !== undefined) {
             const forPercentage = parseFloat(proposal.for_percentage) || 0;
             predictedApproved = forPercentage > 0.5;
-            predictionMethod = 'for_percentage';
         }
-        // Method 4: Use Target_encoded field (common in ML datasets, 1 = approved)
-        else if (proposal.Target_encoded !== undefined) {
-            predictedApproved = proposal.Target_encoded === 1 || proposal.Target_encoded === '1';
-            predictionMethod = 'Target_encoded';
-        }
-        // Method 5: Use any prediction_model field that might indicate outcome
-        else {
-            const predictionKeys = Object.keys(proposal).filter(key => 
-                key.includes('prediction_model') || key.includes('score_model')
-            );
-            if (predictionKeys.length > 0) {
-                // Use the first prediction field found, assuming >0.5 means approved
-                const predValue = parseFloat(proposal[predictionKeys[0]]) || 0;
-                predictedApproved = predValue > 0.5;
-                predictionMethod = predictionKeys[0];
-            }
-        }
-
         // Update confusion matrix
         if (predictedApproved && actuallyApproved) {
             truePositive++;
@@ -3984,31 +3707,66 @@ function calculateRealConfusionMatrix(proposalId = null) {
         } else if (!predictedApproved && !actuallyApproved) {
             trueNegative++;
         }
-
-        // Debug logging for first few proposals
-        if (index < 5) {
-            console.log(`[DEBUG] Proposal ${proposal.id || index} confusion matrix:`, {
-                actuallyApproved,
-                predictedApproved, 
-                predictionMethod,
-                confusionCell: predictedApproved && actuallyApproved ? 'TP' : 
-                              predictedApproved && !actuallyApproved ? 'FP' :
-                              !predictedApproved && actuallyApproved ? 'FN' : 'TN'
-            });
-        }
+        console.log(`Proposal ${proposal.id}: Predicted=${predictedApproved}, Actual=${actuallyApproved}`);
     });
-
     const matrix = {
         'true_positive': truePositive,
         'false_positive': falsePositive,
         'false_negative': falseNegative,
         'true_negative': trueNegative
     };
-
     const metrics = calculateMetrics(matrix);
+
+    // Delta1: |Predicted For Shares - True For Shares| / True For Shares (per proposal)
+    let delta1 = 0;
+    let delta1Count = 0;
+    let delta1Arr = [];
+    validProposals.forEach(p => {
+        if (p.predicted_for_shares !== undefined && p.total_for_shares !== undefined && p.total_for_shares !== 0) {
+            const pred = parseFloat(p.predicted_for_shares) || 0;
+            const actual = parseFloat(p.total_for_shares) || 0;
+            let d = Math.abs(pred - actual) / Math.abs(actual);
+            if (!isFinite(d) || isNaN(d)) d = 0;
+            delta1 += d;
+            delta1Arr.push(d);
+            delta1Count++;
+        } else {
+            delta1Arr.push(0);
+        }
+    });
+    delta1 = delta1Count > 0 ? delta1 / delta1Count : 0;
+
+    // Delta2: |(Pred For / (Pred For + Pred Against + Pred Abstain)) - (True For / (True For + True Against + True Abstain))| (per proposal)
+    let delta2 = 0;
+    let delta2Count = 0;
+    let delta2Arr = [];
+    validProposals.forEach(p => {
+        const predFor = parseFloat(p.predicted_for_shares) || 0;
+        const predAgainst = parseFloat(p.predicted_against_shares) || 0;
+        const predAbstain = parseFloat(p.predicted_abstain_shares) || 0;
+        const trueFor = parseFloat(p.total_for_shares) || 0;
+        const trueAgainst = parseFloat(p.total_against_shares) || 0;
+        const trueAbstain = parseFloat(p.total_abstain_shares) || 0;
+        const predDenom = predFor + predAgainst + predAbstain;
+        const trueDenom = trueFor + trueAgainst + trueAbstain;
+        if (predDenom > 0 && trueDenom > 0) {
+            let predRatio = predFor / predDenom;
+            let trueRatio = trueFor / trueDenom;
+            let d = Math.abs(predRatio - trueRatio);
+            if (!isFinite(d) || isNaN(d)) d = 0;
+            delta2 += d;
+            delta2Arr.push(d);
+            delta2Count++;
+        } else {
+            delta2Arr.push(0);
+        }
+    });
+    delta2 = delta2Count > 0 ? delta2 / delta2Count : 0;
 
     console.log('Confusion Matrix Results:', matrix);
     console.log('Calculated Metrics:', metrics);
+    console.log('Delta1 (For Shares):', delta1);
+    console.log('Delta2 (For Voting Ratio):', delta2);
 
     return {
         matrix: matrix,
@@ -4016,9 +3774,12 @@ function calculateRealConfusionMatrix(proposalId = null) {
         dataInfo: {
             totalProposals: dataToAnalyze.length,
             validProposals: validProposals.length,
-            message: `Analysis of ${validProposals.length} proposals with prediction data`,
-            proposals: dataToAnalyze  // Include filtered proposals for Delta1/Delta2 calculations
-        }
+            message: `Analysis of ${validProposals.length} proposals with prediction data`
+        },
+        delta1: delta1,
+        delta2: delta2,
+        delta1Arr: delta1Arr,
+        delta2Arr: delta2Arr
     };
 }
 
@@ -4389,4 +4150,5 @@ window.testRealConfusionMatrix = function(proposalId = null) {
 };
 
 // Make calculation function globally accessible
+
 window.calculateRealConfusionMatrix = calculateRealConfusionMatrix;
