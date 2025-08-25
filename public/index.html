@@ -273,6 +273,7 @@
                                     <th scope="col" style="width: 80px; cursor: pointer;" title="Category classification of the proposal" onclick="toggleProposalSort('category')">
                                         Category <i id="proposals_sort_category" class="fas fa-sort text-muted" style="font-size: 11px;"></i>
                                     </th>
+                                    <th scope="col" style="width: 150px;" title="Proposal content - hover for full text">Proposal Content</th>
                                     <th scope="col" style="width: 70px; cursor: pointer;" title="Whether the prediction was correct or incorrect" onclick="toggleProposalSort('prediction_correct')">Prediction <i id="proposals_sort_prediction_correct" class="fas fa-sort text-muted" style="font-size: 11px;"></i></th>
                                     <th scope="col" style="width: 60px;" title="Whether the proposal was approved by shareholders">Approved</th>
                                     <th scope="col" style="width: 55px;" title="Percentage of votes in favor">For %</th>
@@ -294,7 +295,7 @@
                             </thead>
                             <tbody id="proposalsTableBody">
                                 <tr>
-                                    <td colspan="19" class="text-center">Loading proposals...</td>
+                                    <td colspan="20" class="text-center">Loading proposals...</td>
                                 </tr>
                             </tbody>
                         </table>

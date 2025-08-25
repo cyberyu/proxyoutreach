@@ -578,6 +578,7 @@ function renderProposalsTable() {
         { key: 'director_master_skey', label: 'Director Master Key' },
         { key: 'issuer_name', label: 'Issuer Name' },
         { key: 'category', label: 'Category' },
+        { key: 'proposal', label: 'Proposal Content' },
         { key: 'prediction_correct', label: 'Prediction Accuracy' },
         { key: 'approved', label: 'Approved Status' },
         { key: 'for_percentage', label: 'For Percentage' },
@@ -593,6 +594,22 @@ function renderProposalsTable() {
         { key: 'total_unvoted_shares', label: 'True Unvoted' }
     ];
 
+    // Helper function to truncate text to first N words
+    function truncateToWords(text, wordLimit = 10) {
+        if (!text || typeof text !== 'string') return '-';
+        const words = text.trim().split(/\s+/);
+        if (words.length <= wordLimit) return text;
+        return words.slice(0, wordLimit).join(' ') + '...';
+    }
+
+    // Helper function to escape HTML for safe tooltip display
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     // local helper to format numeric share values
     function formatShares(val) {
         if (val === undefined || val === null || val === '') return '-';
@@ -605,7 +622,28 @@ function renderProposalsTable() {
         tbody.innerHTML = proposals.map(proposal => {
             return `<tr>` +
                 succinctFields.map(field => {
-                    if (field.key === 'prediction_correct') {
+                    if (field.key === 'proposal') {
+                        // Try multiple possible field names for proposal content
+                        const possibleFieldNames = ['proposal', 'Proposal', 'description', 'text', 'content', 'proposal_text', 'proposal_description'];
+                        let proposalText = '-';
+                        
+                        for (const fieldName of possibleFieldNames) {
+                            if (proposal[fieldName] && proposal[fieldName].trim().length > 0) {
+                                proposalText = proposal[fieldName];
+                                break;
+                            }
+                        }
+                        
+                        const truncatedText = truncateToWords(proposalText, 10);
+                        const fullText = escapeHtml(proposalText);
+                        
+                        if (proposalText && proposalText !== '-' && proposalText.trim().length > 0) {
+                            return `<td><span class="proposal-content" data-bs-toggle="tooltip" 
+                                data-bs-placement="top" title="${fullText}">${truncatedText}</span></td>`;
+                        } else {
+                            return '<td>-</td>';
+                        }
+                    } else if (field.key === 'prediction_correct') {
                         return `<td><span class="badge ${proposal.prediction_correct ? 'bg-success' : 'bg-danger'}">${proposal.prediction_correct ? 'Correct' : 'Incorrect'}</span></td>`;
                     } else if (field.key === 'approved') {
                         return `<td><span class="badge ${proposal.approved ? 'bg-success' : 'bg-secondary'}">${proposal.approved ? 'Yes' : 'No'}</span></td>`;
@@ -637,10 +675,19 @@ function renderProposalsTable() {
                 </td>` +
             `</tr>`;
         }).join('');
+        
+        // Initialize Bootstrap tooltips for proposal content
+        setTimeout(() => {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        }, 100);
+        
         console.log('Proposals table rendered successfully');
     } catch (error) {
         console.error('Error rendering proposals table:', error);
-        tbody.innerHTML = '<tr><td colspan="19" class="text-center text-danger">Error rendering table</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="20" class="text-center text-danger">Error rendering table</td></tr>';
     }
 }
 
@@ -758,6 +805,14 @@ function viewProposalDetails(id) {
     const proposal = proposals.find(p => p.id === id);
     if (!proposal) return;
     
+    // Define fields shown in main table for highlighting
+    const mainTableFields = [
+        'id', 'proposal_master_skey', 'director_master_skey', 'issuer_name', 'category',
+        'proposal', 'prediction_correct', 'approved', 'for_percentage', 'against_percentage',
+        'predicted_for_shares', 'predicted_against_shares', 'predicted_abstain_shares', 'predicted_unvoted_shares',
+        'total_for_shares', 'total_against_shares', 'total_abstain_shares', 'total_unvoted_shares'
+    ];
+    
     // Recursively render all fields, including nested objects/arrays
     // Show all fields from the data table, in the correct order, even if missing from the object
     function renderValue(val, key) {
@@ -782,7 +837,14 @@ function viewProposalDetails(id) {
         }
     }
     function renderTable(obj) {
-        return Object.keys(obj).map(key => `<tr><td class="fw-bold">${key}</td><td>${renderValue(obj[key], key)}</td></tr>`).join('');
+        return Object.keys(obj).map(key => {
+            const isMainTableField = mainTableFields.includes(key);
+            const rowClass = isMainTableField ? 'table-warning' : '';
+            const keyClass = isMainTableField ? 'fw-bold text-primary' : 'fw-bold';
+            const indicator = isMainTableField ? ' <i class="fas fa-eye text-info" title="Shown in main table"></i>' : '';
+            
+            return `<tr class="${rowClass}"><td class="${keyClass}">${key}${indicator}</td><td>${renderValue(obj[key], key)}</td></tr>`;
+        }).join('');
     }
     const modalContent = `
         <div class="modal fade" id="proposalDetailsModal" tabindex="-1">
@@ -793,6 +855,12 @@ function viewProposalDetails(id) {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
+                        <div class="alert alert-info py-2 mb-3" style="font-size: 0.85rem;">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Legend:</strong> 
+                            <span class="badge bg-warning text-dark me-2">Highlighted rows</span> are fields shown in the main proposals table
+                            <i class="fas fa-eye text-info ms-1" title="Shown in main table"></i>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm mb-0">
                                 <tbody>
@@ -3505,8 +3573,7 @@ function renderConfusionMatrix(data) {
             ${makeDropdown('filterSubcategorization', 'SubCategorization', subcategorizations, filterState.subcategorization)}
         </div>
     `;
-    // Debug: log the filtersHtml to ensure it is being generated
-    console.log('[DEBUG] Confusion Matrix Filters HTML:', filtersHtml);
+
     const matrixCol = `<div class="col-lg-4 col-md-12 mb-3">
         <div class="card h-100">
             <div class="card-header bg-light"><b>Confusion Matrix and Predicted Shares Variances</b></div>
