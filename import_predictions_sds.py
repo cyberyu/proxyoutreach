@@ -7,6 +7,7 @@ import csv
 import mysql.connector
 from datetime import datetime
 import sys
+import os
 
 def connect_to_database():
     """Connect to MySQL database"""
@@ -88,36 +89,62 @@ def import_csv_data():
     connection = connect_to_database()
     cursor = connection.cursor()
     
-    # Read CSV file
-    csv_file = '/home/syu/Documents/ProjectsNew/proxy_account_outreach/2025_predictions_sds_v2.1.csv'
+    # Read CSV file - use relative path for Docker
+    csv_file = '2025_predictions_sds_v2.1.csv'
+    
+    if not os.path.exists(csv_file):
+        print(f"❌ CSV file not found: {csv_file}")
+        return False
+    
+    print(f"📥 Reading CSV file: {csv_file}")
+    
+    # Create table if it doesn't exist
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS proposals_predictions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        proposal_master_skey INT,
+        director_master_skey INT,
+        issuer_name VARCHAR(500),
+        category VARCHAR(500),
+        proposal TEXT,
+        prediction_correct TINYINT(1),
+        approved TINYINT(1),
+        for_percentage DECIMAL(10,6),
+        against_percentage DECIMAL(10,6),
+        abstain_percentage DECIMAL(10,6),
+        predicted_for_shares DECIMAL(20,4),
+        predicted_against_shares DECIMAL(20,4),
+        predicted_abstain_shares DECIMAL(20,4),
+        predicted_unvoted_shares DECIMAL(20,4),
+        total_for_shares DECIMAL(20,4),
+        total_against_shares DECIMAL(20,4),
+        total_abstain_shares DECIMAL(20,4),
+        total_unvoted_shares DECIMAL(20,4),
+        meeting_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_proposal_master_skey (proposal_master_skey),
+        INDEX idx_director_master_skey (director_master_skey)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """
+    
+    cursor.execute(create_table_sql)
+    print("✅ Table proposals_predictions created/verified in proxy_sds database")
     
     with open(csv_file, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         
-        # Prepare insert query (excluding id and created_at as they are auto-generated)
+        print(f"📋 Available columns: {reader.fieldnames}")
+        
+        # Prepare insert query
         insert_query = """
         INSERT INTO proposals_predictions (
-            proposal_master_skey, director_master_skey, final_key, job_number,
-            issuer_name, service, cusip6, mt_date, ml_date, record_date,
-            mgmt_rec, proposal, proposal_type, director_number, director_name,
-            category, subcategory, predicted_for_shares, predicted_against_shares,
-            predicted_abstain_shares, predicted_unvoted_shares, total_for_shares,
-            total_against_shares, total_abstain_shares, total_unvoted_shares,
-            for_ratio_among_voted, for_ratio_among_elig, voting_ratio,
-            for_ratio_among_voted_true, for_ratio_among_elig_true, voting_ratio_true,
-            for_ratio_among_voted_incl_abs, for_ratio_among_elig_incl_abs,
-            voting_ratio_incl_abs, for_ratio_among_voted_incl_abs_true,
-            for_ratio_among_elig_incl_abs_true, voting_ratio_incl_abs_true,
-            for_percentage, against_percentage, abstain_percentage,
-            for_percentage_true, against_percentage_true, abstain_percentage_true,
-            prediction_correct, approved, for_prospectus_2026,
-            against_prospectus_2026, abstain_prospectus_2026
+            proposal_master_skey, director_master_skey, issuer_name, category, proposal,
+            prediction_correct, approved, for_percentage, against_percentage, abstain_percentage,
+            predicted_for_shares, predicted_against_shares, predicted_abstain_shares, predicted_unvoted_shares,
+            total_for_shares, total_against_shares, total_abstain_shares, total_unvoted_shares,
+            meeting_date
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         """
         
@@ -126,88 +153,78 @@ def import_csv_data():
         
         for row_num, row in enumerate(reader, start=2):  # Start at 2 because header is row 1
             try:
-                # Map CSV columns to database fields
+                # Extract and clean data
+                proposal_master_skey = int(row.get('proposal_master_skey', 0)) if row.get('proposal_master_skey', '').strip() else None
+                director_master_skey = int(row.get('director_master_skey', 0)) if row.get('director_master_skey', '').strip() else None
+                issuer_name = row.get('issuer_name', '')[:500] if row.get('issuer_name', '').strip() else None
+                category = row.get('category', '')[:500] if row.get('category', '').strip() else None
+                proposal = row.get('proposal', '') if row.get('proposal', '').strip() else None
+                
+                # Boolean fields
+                prediction_correct = bool(int(row.get('prediction_correct', 0))) if row.get('prediction_correct', '').strip() else False
+                approved = bool(int(row.get('approved', 0))) if row.get('approved', '').strip() else False
+                
+                # Percentage fields
+                for_percentage = parse_numeric(row.get('for_percentage'), 6)
+                against_percentage = parse_numeric(row.get('against_percentage'), 6)
+                abstain_percentage = parse_numeric(row.get('abstain_percentage'), 6)
+                
+                # Share fields
+                predicted_for_shares = parse_numeric(row.get('predicted_for_shares'), 4)
+                predicted_against_shares = parse_numeric(row.get('predicted_against_shares'), 4)
+                predicted_abstain_shares = parse_numeric(row.get('predicted_abstain_shares'), 4)
+                predicted_unvoted_shares = parse_numeric(row.get('predicted_unvoted_shares'), 4)
+                
+                total_for_shares = parse_numeric(row.get('total_for_shares'), 4)
+                total_against_shares = parse_numeric(row.get('total_against_shares'), 4)
+                total_abstain_shares = parse_numeric(row.get('total_abstain_shares'), 4)
+                total_unvoted_shares = parse_numeric(row.get('total_unvoted_shares'), 4)
+                
+                # Date field
+                meeting_date = parse_date(row.get('meeting_date', ''))
+                
+                # Prepare data tuple
                 data = (
-                    parse_numeric(row['proposal_master_skey']),
-                    parse_numeric(row['director_master_skey']),
-                    row['final_key'] or None,
-                    row['job_number'] or None,
-                    row['issuer_name'] or None,
-                    row['service'] or None,
-                    row['cusip6'] or None,
-                    parse_date(row['mt_date']),
-                    parse_date(row['ml_date']),
-                    parse_date(row['record_date']),
-                    row['mgmt_rec'] or None,
-                    row['proposal'] or None,
-                    row['proposal_type'] or None,
-                    parse_numeric(row['director_number']),
-                    row['director_name'] or None,
-                    row['Category'] or None,
-                    row['Subcategory'] or None,
-                    parse_numeric(row['predicted_for_shares'], 2),
-                    parse_numeric(row['predicted_against_shares'], 2),
-                    parse_numeric(row['predicted_abstain_shares'], 2),
-                    parse_numeric(row['predicted_unvoted_shares'], 2),
-                    parse_numeric(row['total_for_shares'], 2),
-                    parse_numeric(row['total_against_shares'], 2),
-                    parse_numeric(row['total_abstain_shares'], 2),
-                    parse_numeric(row['total_unvoted_shares'], 2),
-                    parse_numeric(row['ForRatioAmongVoted'], 6),
-                    parse_numeric(row['ForRatioAmongElig'], 6),
-                    parse_numeric(row['VotingRatio'], 6),
-                    parse_numeric(row['ForRatioAmongVoted_true'], 6),
-                    parse_numeric(row['ForRatioAmongElig_true'], 6),
-                    parse_numeric(row['VotingRatio_true'], 6),
-                    parse_numeric(row['ForRatioAmongVotedInclAbs'], 6),
-                    parse_numeric(row['ForRatioAmongEligInclAbs'], 6),
-                    parse_numeric(row['VotingRatioInclAbs'], 6),
-                    parse_numeric(row['ForRatioAmongVotedInclAbs_true'], 6),
-                    parse_numeric(row['ForRatioAmongEligInclAbs_true'], 6),
-                    parse_numeric(row['VotingRatioInclAbs_true'], 6),
-                    parse_numeric(row['For %'], 4),
-                    parse_numeric(row['Against %'], 4),
-                    parse_numeric(row['Abstain %'], 4),
-                    parse_numeric(row['For % True'], 4),
-                    parse_numeric(row['Against % True'], 4),
-                    parse_numeric(row['Abstain % True'], 4),
-                    parse_boolean(row['prediction_correct']),
-                    parse_boolean(row['approved']),
-                    parse_numeric(row['For (%) - From Prospectus 2026 File'], 4),
-                    row['Against (%) - From Prospectus 2026 File'] or None,
-                    row['Abstain/Withhold (%) - From Prospectus 2026 File'] or None
+                    proposal_master_skey, director_master_skey, issuer_name, category, proposal,
+                    prediction_correct, approved, for_percentage, against_percentage, abstain_percentage,
+                    predicted_for_shares, predicted_against_shares, predicted_abstain_shares, predicted_unvoted_shares,
+                    total_for_shares, total_against_shares, total_abstain_shares, total_unvoted_shares,
+                    meeting_date
                 )
                 
                 cursor.execute(insert_query, data)
                 success_count += 1
                 
                 if success_count % 100 == 0:
-                    print(f"Processed {success_count} rows...")
+                    print(f"📝 Processed {success_count} rows...")
                     
             except Exception as e:
                 error_count += 1
-                print(f"Error processing row {row_num}: {e}")
-                print(f"Row data: {row}")
+                print(f"⚠️ Error processing row {row_num}: {e}")
                 if error_count > 10:  # Stop if too many errors
-                    print("Too many errors, stopping import")
+                    print("❌ Too many errors, stopping import")
                     break
         
         # Commit the transaction
         connection.commit()
         
-        print(f"\nImport completed!")
-        print(f"Successfully imported: {success_count} rows")
-        print(f"Errors: {error_count} rows")
+        print(f"\n✅ Import completed!")
+        print(f"📊 Successfully imported: {success_count} rows")
+        print(f"❌ Errors: {error_count} rows")
         
         # Verify the import
         cursor.execute("SELECT COUNT(*) FROM proposals_predictions")
         total_count = cursor.fetchone()[0]
-        print(f"Total rows in database: {total_count}")
+        print(f"🔍 Total rows in database: {total_count}")
     
     cursor.close()
     connection.close()
-
+    return True
 if __name__ == "__main__":
-    print("Starting import of 2025_predictions_sds_v2.1.csv...")
-    import_csv_data()
-    print("Import completed!")
+    print("🚀 Starting import of 2025_predictions_sds_v2.1.csv...")
+    success = import_csv_data()
+    if success:
+        print("✅ Import completed successfully!")
+    else:
+        print("❌ Import failed!")
+        sys.exit(1)

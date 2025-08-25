@@ -27,23 +27,32 @@ logs
 Thumbs.db
 
 # Exclude large data files that shouldn't be in Docker image
-*.csv
-*.xlsx
-*.xls
 *.tar.gz
+*.gz
 *.zip
 *.rar
+*.parquet
 backups/
 docker/mysql-data/
 uploads/
 proxy-outreach.tar.gz
 
-# Exclude old SQL dumps but keep the new one
+# Exclude old SQL dumps but keep the optimized ones
 docker/proxy_backup.sql
 docker/proxy_backup_fresh.sql
-!docker/proxy_backup_new.sql
+docker/proxy_backup_new.sql
+# Keep our optimized dumps
+!docker/proxy_complete_dump.sql
+!docker/proxy_sds_complete_dump.sql
 
 # Development and testing files
-df_*.csv
 *_progress.log
 debug_test.html
+*.ibd
+*.frm
+*.MYD
+*.MYI
+binlog.*
+ib_logfile*
+mysql-bin.*
+

@@ -72,6 +72,7 @@ binlog.*
 
 # Large backup files
 backups/
+trash/
 backup_*
 *backup*
 

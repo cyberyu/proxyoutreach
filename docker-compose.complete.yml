@@ -1,0 +1,44 @@
+# Docker Compose for Complete Proxy Account Outreach System
+# Includes both proxy and proxy_sds databases with sample data generation
+
+version: '3.8'
+
+services:
+  proxy-outreach-complete:
+    build:
+      context: .
+      dockerfile: Dockerfile.complete
+    container_name: proxy-outreach-complete
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MYSQL_ROOT_PASSWORD=rootpass
+      - MYSQL_DATABASE=proxy
+      - MYSQL_SDS_DATABASE=proxy_sds
+      - MYSQL_USER=webapp
+      - MYSQL_PASSWORD=webapppass
+    volumes:
+      # Optional: Mount external data directory if you have real data files
+      - ./external-data:/usr/src/app/external-data:ro
+      # Optional: Persist MySQL data
+      - mysql-data:/var/lib/mysql
+      # Optional: Persist uploads
+      - ./uploads:/usr/src/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - proxy-network
+
+volumes:
+  mysql-data:
+    driver: local
+
+networks:
+  proxy-network:
+    driver: bridge

@@ -1,0 +1,37 @@
+[mysqld]
+# Basic Settings
+user = mysql
+bind-address = 0.0.0.0
+port = 3306
+
+# Performance Optimizations for Fast Imports
+innodb_buffer_pool_size = 1G
+innodb_log_file_size = 256M
+innodb_log_buffer_size = 64M
+innodb_flush_log_at_trx_commit = 0
+innodb_flush_method = O_DIRECT
+innodb_write_io_threads = 8
+innodb_read_io_threads = 8
+innodb_thread_concurrency = 0
+
+# Import Speed Optimizations
+max_allowed_packet = 1G
+bulk_insert_buffer_size = 64M
+myisam_sort_buffer_size = 64M
+key_buffer_size = 256M
+sort_buffer_size = 4M
+read_buffer_size = 2M
+read_rnd_buffer_size = 8M
+
+# Disable slow features during imports
+sync_binlog = 0
+foreign_key_checks = 0
+unique_checks = 0
+
+# Binary Logging (disabled for speed)
+skip-log-bin
+
+# General Settings
+max_connections = 200
+thread_cache_size = 16
+table_open_cache = 2000

@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DEST_DIR="$BACKUP_BASE/backup_$TIMESTAMP"
 
 # Excludes to avoid copying heavy or VCS files
-EXCLUDES=(--exclude ".git" --exclude "node_modules" --exclude "backups" --exclude ".DS_Store" --exclude "*.csv" --exclude "*.xlsx" --exclude "*.sql")
+EXCLUDES=(--exclude ".git" --exclude "node_modules" --exclude "backups" --exclude ".DS_Store" --exclude "*.csv" --exclude "*.xlsx" --exclude "*.sql" --exclude "*.gz")
 
 mkdir -p "$DEST_DIR"
 

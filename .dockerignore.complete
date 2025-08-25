@@ -1,0 +1,78 @@
+# Docker ignore file for complete proxy outreach build
+# This build includes sample data generation, so we exclude external data files
+
+.git
+.gitignore
+.dockerignore
+node_modules
+npm-debug.log
+.env
+.env.local
+.env.*.local
+coverage
+.nyc_output
+.cache
+.parcel-cache
+.next
+.nuxt
+dist
+.vuepress/dist
+.serverless
+.fusebox/
+.dynamodb/
+.tern-port
+logs
+*.log
+.DS_Store
+Thumbs.db
+
+# Exclude user data files - these will be generated or mounted
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.tar.gz
+*.zip
+*.rar
+backups/
+docker/mysql-data/
+uploads/
+external-data/
+proxy-outreach.tar.gz
+
+# Exclude old Dockerfiles and compose files
+Dockerfile
+Dockerfile.optimized
+Dockerfile.production
+docker-compose.yml
+docker-compose.production.yml
+
+# Exclude backup SQL files - we're generating fresh data
+docker/proxy_backup.sql
+docker/proxy_backup_fresh.sql
+docker/proxy_backup_new.sql
+
+# Development and testing files
+df_*.csv
+*_progress.log
+debug_test.html
+test_*.html
+
+# Documentation that's not needed in container
+README.md
+DOCKER.md
+DOCKER-OPTIMIZATION.md
+DOCKER-PRELOADED.md
+LARGE_FILES.md
+CSV_VERIFICATION_GUIDE.md
+DATA_IMPORT_UPDATES.md
+DATABASE_OPTIMIZATION.md
+CLEANUP_SUMMARY.md
+confusionmatrix_implementation_readme.md
+
+# Build scripts not needed in container
+build-docker.sh
+build-optimized-docker.sh
+analyze_data.sh
+clear_cookies.txt
+test_verification_workflow.sh

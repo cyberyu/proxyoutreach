@@ -1,0 +1,74 @@
+# Multi-stage Docker build for Proxy Account Outreach System
+# Includes all databases, sample data generation, and ingestion logic
+
+FROM ubuntu:22.04 as base
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_VERSION=20.19.4
+ENV MYSQL_ROOT_PASSWORD=rootpass
+ENV MYSQL_DATABASE=proxy
+ENV MYSQL_SDS_DATABASE=proxy_sds
+ENV MYSQL_USER=webapp
+ENV MYSQL_PASSWORD=webapppass
+
+# Update package list and install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    apt-transport-https \
+    software-properties-common \
+    mysql-server \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy Python requirements first and install dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install -r /tmp/requirements.txt
+
+# Copy package files and install Node.js dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy application code (using specific ignore patterns)
+COPY . .
+
+# Copy SQL dumps for fast database initialization (place into /tmp for start script)
+COPY docker/proxy_complete_dump.sql /tmp/proxy_complete_dump.sql
+COPY docker/proxy_sds_complete_dump.sql /tmp/proxy_sds_complete_dump.sql
+
+# Use default MySQL configuration (like reference container)
+
+# Create data directories
+RUN mkdir -p /usr/src/app/data/sql \
+    && mkdir -p /usr/src/app/data/parquet \
+    && mkdir -p /usr/src/app/data/excel \
+    && mkdir -p /usr/src/app/data/csv \
+    && mkdir -p /usr/src/app/uploads \
+    && chmod 777 /usr/src/app/uploads
+
+# Copy and setup startup scripts
+COPY docker/start-complete.sh /usr/local/bin/start-complete.sh
+RUN chmod +x /usr/local/bin/start-complete.sh
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+  CMD curl -f http://localhost:3000/ || exit 1
+
+# Start the complete application with data generation
+CMD ["/usr/local/bin/start-complete.sh"]
