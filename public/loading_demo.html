@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading States Demo - Proxy Account Outreach</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid mt-3">
+        <h1 class="mb-4"><i class="fas fa-spinner me-2"></i>Loading States Demo</h1>
+        
+        <!-- Demo Controls -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Demo Controls</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <button id="demoGlobalLoading" class="btn btn-primary w-100 mb-2">
+                                    <i class="fas fa-globe"></i> Global Loading
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button id="demoProgressLoading" class="btn btn-info w-100 mb-2">
+                                    <i class="fas fa-tasks"></i> Progress Loading
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button id="demoButtonLoading" class="btn btn-success w-100 mb-2">
+                                    <i class="fas fa-mouse-pointer"></i> Button Loading
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button id="demoTableLoading" class="btn btn-warning w-100 mb-2">
+                                    <i class="fas fa-table"></i> Table Loading
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <button id="demoSectionLoading" class="btn btn-secondary w-100 mb-2">
+                                    <i class="fas fa-section"></i> Section Loading
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button id="demoErrorState" class="btn btn-danger w-100 mb-2">
+                                    <i class="fas fa-exclamation-triangle"></i> Error State
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button id="demoClearAll" class="btn btn-dark w-100 mb-2">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Dashboard Cards Demo -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white dashboard-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4 id="demoCard1">279</h4>
+                                <p class="mb-0" style="font-size: 0.7rem;">
+                                    Total Proposals
+                                    <span class="data-state-indicator data-state-loading d-none" id="demoCard1Loader">
+                                        <i class="fas fa-sync fa-spin me-1"></i>Loading
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-file-contract fa-lg"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white dashboard-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4 id="demoCard2">1,247</h4>
+                                <p class="mb-0" style="font-size: 0.7rem;">
+                                    Voted Accounts
+                                    <span class="data-state-indicator data-state-loading d-none" id="demoCard2Loader">
+                                        <i class="fas fa-sync fa-spin me-1"></i>Loading
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-check-circle fa-lg"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-white dashboard-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4 id="demoCard3">892</h4>
+                                <p class="mb-0" style="font-size: 0.7rem;">
+                                    Unvoted Accounts
+                                    <span class="data-state-indicator data-state-loading d-none" id="demoCard3Loader">
+                                        <i class="fas fa-sync fa-spin me-1"></i>Loading
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-clock fa-lg"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white dashboard-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4 id="demoCard4">96.8%</h4>
+                                <p class="mb-0" style="font-size: 0.7rem;">
+                                    Accuracy Rate
+                                    <span class="data-state-indicator data-state-success d-none" id="demoCard4Success">
+                                        <i class="fas fa-check me-1"></i>Loaded
+                                    </span>
+                                </p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-chart-line fa-lg"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Table Demo -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-table me-2"></i>Demo Table with Loading States</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped" id="demoTable">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Company</th>
+                                        <th>Proposal</th>
+                                        <th>Prediction</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="demoTableBody">
+                                    <tr>
+                                        <td>1</td>
+                                        <td>Apple Inc.</td>
+                                        <td>Director Election</td>
+                                        <td><span class="badge bg-success">Correct</span></td>
+                                        <td><span class="badge bg-primary">Approved</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-info" id="demoActionBtn1">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>2</td>
+                                        <td>Microsoft Corp.</td>
+                                        <td>Compensation Plan</td>
+                                        <td><span class="badge bg-danger">Incorrect</span></td>
+                                        <td><span class="badge bg-warning">Pending</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-info" id="demoActionBtn2">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>3</td>
+                                        <td>Google LLC</td>
+                                        <td>Share Authorization</td>
+                                        <td><span class="badge bg-success">Correct</span></td>
+                                        <td><span class="badge bg-success">Approved</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-info" id="demoActionBtn3">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Section Loading Demo -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card" id="demoSection">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-bar me-2"></i>Demo Section with Loading</h5>
+                    </div>
+                    <div class="card-body" style="min-height: 200px;">
+                        <p>This section demonstrates section-level loading states.</p>
+                        <p>Click the "Section Loading" button to see the loading overlay.</p>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Sample Content</h6>
+                                <ul>
+                                    <li>Data visualization</li>
+                                    <li>Interactive charts</li>
+                                    <li>Real-time updates</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Features</h6>
+                                <ul>
+                                    <li>Progress tracking</li>
+                                    <li>Error handling</li>
+                                    <li>User feedback</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status Information -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-info-circle me-2"></i>Loading System Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Active Loaders:</h6>
+                                <div id="activeLoadersDisplay" class="font-monospace">None</div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>System Status:</h6>
+                                <div id="systemStatusDisplay">
+                                    <span class="badge bg-success">Ready</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Include only the LoadingManager class and related functions from script.js
+        
+        // === LOADING STATE MANAGEMENT SYSTEM ===
+        class LoadingManager {
+            constructor() {
+                this.activeLoaders = new Set();
+                this.loadingStates = new Map();
+                this.init();
+            }
+            
+            init() {
+                // Create global loading overlay
+                this.createGlobalOverlay();
+                
+                // Create section loading handlers
+                this.setupSectionLoaders();
+                
+                // Create progress tracking
+                this.setupProgressTracking();
+            }
+            
+            createGlobalOverlay() {
+                if (document.getElementById('globalLoadingOverlay')) return;
+                
+                const overlay = document.createElement('div');
+                overlay.id = 'globalLoadingOverlay';
+                overlay.className = 'loading-overlay';
+                overlay.innerHTML = `
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text" id="globalLoadingText">Loading...</div>
+                    <div class="loading-progress" id="globalProgressContainer" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 id="globalProgressBar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <small class="text-muted" id="globalProgressText">Preparing...</small>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+            }
+            
+            setupSectionLoaders() {
+                // Create section-specific loading overlays for demo section
+                const element = document.getElementById('demoSection');
+                if (element && !element.querySelector('.section-loader')) {
+                    const loader = document.createElement('div');
+                    loader.className = 'section-loader d-none';
+                    loader.innerHTML = `
+                        <div class="d-flex justify-content-center align-items-center" style="min-height: 200px;">
+                            <div class="text-center">
+                                <div class="loading-spinner"></div>
+                                <div class="loading-text">Loading section...</div>
+                            </div>
+                        </div>
+                    `;
+                    element.appendChild(loader);
+                }
+            }
+            
+            setupProgressTracking() {
+                this.progressSteps = {
+                    demo: ['Initializing', 'Loading data', 'Processing', 'Rendering', 'Complete']
+                };
+            }
+            
+            // Show global loading overlay
+            showGlobalLoading(message = 'Loading...', withProgress = false) {
+                const overlay = document.getElementById('globalLoadingOverlay');
+                const textElement = document.getElementById('globalLoadingText');
+                const progressContainer = document.getElementById('globalProgressContainer');
+                
+                if (overlay && textElement) {
+                    textElement.textContent = message;
+                    progressContainer.style.display = withProgress ? 'block' : 'none';
+                    overlay.classList.add('show');
+                    this.activeLoaders.add('global');
+                    this.updateStatus();
+                }
+            }
+            
+            // Hide global loading overlay
+            hideGlobalLoading() {
+                const overlay = document.getElementById('globalLoadingOverlay');
+                if (overlay) {
+                    overlay.classList.remove('show');
+                    this.activeLoaders.delete('global');
+                    this.updateStatus();
+                }
+            }
+            
+            // Update global progress
+            updateGlobalProgress(percent, message = '') {
+                const progressBar = document.getElementById('globalProgressBar');
+                const progressText = document.getElementById('globalProgressText');
+                
+                if (progressBar) {
+                    progressBar.style.width = `${percent}%`;
+                    progressBar.setAttribute('aria-valuenow', percent);
+                }
+                
+                if (progressText && message) {
+                    progressText.textContent = message;
+                }
+            }
+            
+            // Show section loading
+            showSectionLoading(sectionId, message = null) {
+                const section = document.getElementById(sectionId);
+                if (!section) return;
+                
+                section.classList.add('section-loading');
+                
+                const loader = section.querySelector('.section-loader');
+                if (loader) {
+                    if (message) {
+                        const textElement = loader.querySelector('.loading-text');
+                        if (textElement) textElement.textContent = message;
+                    }
+                    loader.classList.remove('d-none');
+                }
+                
+                this.activeLoaders.add(sectionId);
+                this.updateStatus();
+            }
+            
+            // Hide section loading
+            hideSectionLoading(sectionId) {
+                const section = document.getElementById(sectionId);
+                if (!section) return;
+                
+                section.classList.remove('section-loading');
+                
+                const loader = section.querySelector('.section-loader');
+                if (loader) {
+                    loader.classList.add('d-none');
+                }
+                
+                this.activeLoaders.delete(sectionId);
+                this.updateStatus();
+            }
+            
+            // Show button loading state
+            showButtonLoading(buttonId) {
+                const button = document.getElementById(buttonId);
+                if (!button) return;
+                
+                button.classList.add('btn-loading');
+                button.disabled = true;
+                
+                if (!button.dataset.originalText) {
+                    button.dataset.originalText = button.innerHTML;
+                }
+                
+                button.innerHTML = `<span class="btn-text">${button.dataset.originalText}</span>`;
+                
+                this.activeLoaders.add(buttonId);
+                this.updateStatus();
+            }
+            
+            // Hide button loading state
+            hideButtonLoading(buttonId) {
+                const button = document.getElementById(buttonId);
+                if (!button) return;
+                
+                button.classList.remove('btn-loading');
+                button.disabled = false;
+                
+                if (button.dataset.originalText) {
+                    button.innerHTML = button.dataset.originalText;
+                }
+                
+                this.activeLoaders.delete(buttonId);
+                this.updateStatus();
+            }
+            
+            // Show skeleton loader for tables
+            showTableSkeleton(tableId, rows = 5) {
+                const tableElement = document.getElementById(tableId);
+                if (!tableElement) return;
+                
+                const tbody = tableElement.querySelector('tbody');
+                if (!tbody) return;
+                
+                tbody.innerHTML = '';
+                
+                const thead = tableElement.querySelector('thead tr');
+                const colCount = thead ? thead.children.length : 5;
+                
+                for (let i = 0; i < rows; i++) {
+                    const row = document.createElement('tr');
+                    for (let j = 0; j < colCount; j++) {
+                        const cell = document.createElement('td');
+                        cell.innerHTML = '<div class="skeleton-row"></div>';
+                        row.appendChild(cell);
+                    }
+                    tbody.appendChild(row);
+                }
+                
+                this.activeLoaders.add(`table-${tableId}`);
+                this.updateStatus();
+            }
+            
+            // Multi-step progress tracking
+            startProgressSteps(type) {
+                const steps = this.progressSteps[type] || ['Loading...', 'Complete'];
+                const progressContainer = document.getElementById('globalProgressContainer');
+                
+                if (!progressContainer) return;
+                
+                progressContainer.style.display = 'block';
+                
+                const stepsHtml = steps.map((step, index) => `
+                    <div class="progress-step" id="step-${type}-${index}">
+                        <div class="progress-step-icon" id="step-icon-${type}-${index}">
+                            <i class="fas fa-circle" style="font-size: 0.5rem;"></i>
+                        </div>
+                        <div class="progress-step-text" id="step-text-${type}-${index}">${step}</div>
+                    </div>
+                `).join('');
+                
+                progressContainer.innerHTML = `
+                    <div class="progress-steps">${stepsHtml}</div>
+                    <div class="progress mt-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             id="progress-${type}" role="progressbar" style="width: 0%"></div>
+                    </div>
+                `;
+                
+                return { steps, currentStep: 0 };
+            }
+            
+            // Update progress step
+            updateProgressStep(type, stepIndex, total = null) {
+                const steps = this.progressSteps[type] || [];
+                const totalSteps = total || steps.length;
+                
+                const progressBar = document.getElementById(`progress-${type}`);
+                if (progressBar) {
+                    const percent = ((stepIndex + 1) / totalSteps) * 100;
+                    progressBar.style.width = `${percent}%`;
+                }
+                
+                for (let i = 0; i <= stepIndex; i++) {
+                    const icon = document.getElementById(`step-icon-${type}-${i}`);
+                    const text = document.getElementById(`step-text-${type}-${i}`);
+                    
+                    if (icon && text) {
+                        if (i < stepIndex) {
+                            icon.className = 'progress-step-icon complete';
+                            icon.innerHTML = '<i class="fas fa-check" style="font-size: 0.75rem;"></i>';
+                            text.className = 'progress-step-text complete';
+                        } else if (i === stepIndex) {
+                            icon.className = 'progress-step-icon active';
+                            icon.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 0.75rem;"></i>';
+                            text.className = 'progress-step-text active';
+                        }
+                    }
+                }
+            }
+            
+            // Check if any loading is active
+            isLoading() {
+                return this.activeLoaders.size > 0;
+            }
+            
+            // Get active loaders
+            getActiveLoaders() {
+                return Array.from(this.activeLoaders);
+            }
+            
+            // Update demo status display
+            updateStatus() {
+                const activeDisplay = document.getElementById('activeLoadersDisplay');
+                const statusDisplay = document.getElementById('systemStatusDisplay');
+                
+                if (activeDisplay) {
+                    const loaders = this.getActiveLoaders();
+                    activeDisplay.textContent = loaders.length > 0 ? loaders.join(', ') : 'None';
+                }
+                
+                if (statusDisplay) {
+                    const isLoading = this.isLoading();
+                    statusDisplay.innerHTML = isLoading 
+                        ? '<span class="badge bg-warning">Loading</span>'
+                        : '<span class="badge bg-success">Ready</span>';
+                }
+            }
+            
+            // Clear all loading states
+            clearAllLoading() {
+                this.hideGlobalLoading();
+                
+                this.loadingStates.forEach((state, sectionId) => {
+                    this.hideSectionLoading(sectionId);
+                });
+                
+                this.activeLoaders.forEach(loaderId => {
+                    if (document.getElementById(loaderId)?.tagName === 'BUTTON') {
+                        this.hideButtonLoading(loaderId);
+                    }
+                });
+                
+                // Hide card loaders
+                ['demoCard1Loader', 'demoCard2Loader', 'demoCard3Loader'].forEach(id => {
+                    const loader = document.getElementById(id);
+                    if (loader) loader.classList.add('d-none');
+                });
+                
+                // Remove card loading states
+                document.querySelectorAll('.dashboard-card-loading').forEach(card => {
+                    card.classList.remove('dashboard-card-loading');
+                });
+                
+                // Restore table content
+                const tableBody = document.getElementById('demoTableBody');
+                if (tableBody && tableBody.querySelector('.skeleton-row')) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td>1</td>
+                            <td>Apple Inc.</td>
+                            <td>Director Election</td>
+                            <td><span class="badge bg-success">Correct</span></td>
+                            <td><span class="badge bg-primary">Approved</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn1">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td>Microsoft Corp.</td>
+                            <td>Compensation Plan</td>
+                            <td><span class="badge bg-danger">Incorrect</span></td>
+                            <td><span class="badge bg-warning">Pending</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn2">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>Google LLC</td>
+                            <td>Share Authorization</td>
+                            <td><span class="badge bg-success">Correct</span></td>
+                            <td><span class="badge bg-success">Approved</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn3">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
+                
+                this.activeLoaders.clear();
+                this.loadingStates.clear();
+                this.updateStatus();
+            }
+        }
+        
+        // Initialize loading manager
+        const loadingManager = new LoadingManager();
+        
+        // Demo event handlers
+        document.addEventListener('DOMContentLoaded', function() {
+            // Global Loading Demo
+            document.getElementById('demoGlobalLoading').addEventListener('click', function() {
+                loadingManager.showGlobalLoading('Demonstrating global loading overlay...');
+                setTimeout(() => {
+                    loadingManager.hideGlobalLoading();
+                }, 3000);
+            });
+            
+            // Progress Loading Demo
+            document.getElementById('demoProgressLoading').addEventListener('click', async function() {
+                loadingManager.showGlobalLoading('Running multi-step process...', true);
+                const tracker = loadingManager.startProgressSteps('demo');
+                
+                for (let i = 0; i < tracker.steps.length; i++) {
+                    loadingManager.updateProgressStep('demo', i);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                setTimeout(() => {
+                    loadingManager.hideGlobalLoading();
+                }, 500);
+            });
+            
+            // Button Loading Demo
+            document.getElementById('demoButtonLoading').addEventListener('click', function() {
+                const buttonId = this.id;
+                loadingManager.showButtonLoading(buttonId);
+                setTimeout(() => {
+                    loadingManager.hideButtonLoading(buttonId);
+                }, 2000);
+            });
+            
+            // Table Loading Demo
+            document.getElementById('demoTableLoading').addEventListener('click', function() {
+                loadingManager.showTableSkeleton('demoTable', 3);
+                setTimeout(() => {
+                    // Restore original content
+                    const tableBody = document.getElementById('demoTableBody');
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td>1</td>
+                            <td>Apple Inc.</td>
+                            <td>Director Election</td>
+                            <td><span class="badge bg-success">Correct</span></td>
+                            <td><span class="badge bg-primary">Approved</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn1">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td>Microsoft Corp.</td>
+                            <td>Compensation Plan</td>
+                            <td><span class="badge bg-danger">Incorrect</span></td>
+                            <td><span class="badge bg-warning">Pending</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn2">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>Google LLC</td>
+                            <td>Share Authorization</td>
+                            <td><span class="badge bg-success">Correct</span></td>
+                            <td><span class="badge bg-success">Approved</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" id="demoActionBtn3">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    loadingManager.activeLoaders.delete('table-demoTable');
+                    loadingManager.updateStatus();
+                }, 2000);
+            });
+            
+            // Section Loading Demo
+            document.getElementById('demoSectionLoading').addEventListener('click', function() {
+                loadingManager.showSectionLoading('demoSection', 'Loading section content...');
+                setTimeout(() => {
+                    loadingManager.hideSectionLoading('demoSection');
+                }, 3000);
+            });
+            
+            // Error State Demo
+            document.getElementById('demoErrorState').addEventListener('click', function() {
+                // Show card loaders with error
+                ['demoCard1Loader', 'demoCard2Loader', 'demoCard3Loader'].forEach((id, index) => {
+                    const loader = document.getElementById(id);
+                    const card = document.getElementById('demoCard' + (index + 1));
+                    if (loader && card) {
+                        loader.classList.remove('d-none');
+                        card.closest('.dashboard-card').classList.add('dashboard-card-loading');
+                    }
+                });
+                
+                setTimeout(() => {
+                    // Show error state
+                    ['demoCard1', 'demoCard2', 'demoCard3'].forEach(id => {
+                        const element = document.getElementById(id);
+                        if (element) {
+                            element.textContent = 'Error';
+                            element.classList.add('text-danger');
+                        }
+                    });
+                    
+                    // Hide loaders
+                    ['demoCard1Loader', 'demoCard2Loader', 'demoCard3Loader'].forEach(id => {
+                        const loader = document.getElementById(id);
+                        if (loader) {
+                            loader.classList.add('d-none');
+                            loader.className = loader.className.replace('data-state-loading', 'data-state-error');
+                        }
+                    });
+                    
+                    document.querySelectorAll('.dashboard-card-loading').forEach(card => {
+                        card.classList.remove('dashboard-card-loading');
+                    });
+                }, 2000);
+            });
+            
+            // Clear All Demo
+            document.getElementById('demoClearAll').addEventListener('click', function() {
+                loadingManager.clearAllLoading();
+                
+                // Reset card values and states
+                document.getElementById('demoCard1').textContent = '279';
+                document.getElementById('demoCard2').textContent = '1,247';
+                document.getElementById('demoCard3').textContent = '892';
+                
+                ['demoCard1', 'demoCard2', 'demoCard3'].forEach(id => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.classList.remove('text-danger');
+                    }
+                });
+                
+                // Reset loader states
+                ['demoCard1Loader', 'demoCard2Loader', 'demoCard3Loader'].forEach(id => {
+                    const loader = document.getElementById(id);
+                    if (loader) {
+                        loader.className = 'data-state-indicator data-state-loading d-none';
+                    }
+                });
+            });
+            
+            // Initial status update
+            loadingManager.updateStatus();
+        });
+    </script>
+</body>
+</html>

@@ -702,8 +702,8 @@ app.get('/api/admin/manage-database', requireAdmin, async (req, res) => {
       summary: {},
       currentDatabase: currentDatabase
     };
-    // Get list of available databases (proxy and proxy_sds)
-    const availableDatabases = ['proxy', 'proxy_sds'];
+    // Get list of available databases (all five proxy databases)
+    const availableDatabases = ['proxy', 'proxy_sds', 'proxy_sds_calibrated', 'proxy_sel', 'proxy_sel_calibrated'];
     // Get information for all databases
     for (const dbName of availableDatabases) {
       const [sizeResult] = await db.promise().query(`
@@ -759,8 +759,8 @@ app.post('/api/admin/set-database', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Database name is required' });
     }
     
-    // Validate database name (only allow proxy and proxy_sds)
-    const allowedDatabases = ['proxy', 'proxy_sds'];
+    // Validate database name (allow all five proxy databases)
+    const allowedDatabases = ['proxy', 'proxy_sds', 'proxy_sds_calibrated', 'proxy_sel', 'proxy_sel_calibrated'];
     if (!allowedDatabases.includes(database)) {
       return res.status(400).json({ error: 'Invalid database name. Allowed: ' + allowedDatabases.join(', ') });
     }
