@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # Generate reference-compatible SQL dumps for Docker container
+# Dumps all five proxy databases: proxy, proxy_sds, proxy_sds_calibrated, proxy_sel, proxy_sel_calibrated
 # Mimics the exact format of proxy-outreach:fixed-context for optimal performance
 
 set -e
 
-echo "🚀 Generating reference-compatible SQL dumps for Docker container..."
+echo "🚀 Generating reference-compatible SQL dumps for all five proxy databases..."
 
 # Configuration - Update these as needed
 DB_HOST="localhost"
@@ -44,6 +45,9 @@ generate_dump() {
         --lock-tables=false \
         --disable-keys \
         --no-create-info \
+        --default-character-set=utf8mb4 \
+        --hex-blob \
+        --complete-insert \
         --ignore-table="$database.account_unvoted_backup_20250820" \
         --ignore-table="$database.account_voted_backup_20250820" \
         "$database" > "$output_file.data"
@@ -60,6 +64,7 @@ generate_dump() {
         --add-drop-table \
         --create-options \
         --set-charset \
+        --default-character-set=utf8mb4 \
         --ignore-table="$database.account_unvoted_backup_20250820" \
         --ignore-table="$database.account_voted_backup_20250820" \
         "$database" > "$output_file.structure"
@@ -97,8 +102,13 @@ generate_dump() {
             }
         ' "$output_file.structure"
         
-        # Add data
-        grep -A999999 "INSERT INTO" "$output_file.data"
+        # Add data with validation
+        if [ -f "$output_file.data" ] && [ -s "$output_file.data" ]; then
+            echo "-- Data import for $database"
+            grep -A999999 "INSERT INTO" "$output_file.data" | sed 's/\x00//g' # Remove NULL bytes
+        else
+            echo "-- No data found for $database"
+        fi
     } > "$output_file"
     
     # Clean up temporary files
@@ -116,21 +126,46 @@ generate_dump() {
     fi
 }
 
-# Generate proxy database dump
-echo "🎯 Generating proxy database dump (reference-compatible)..."
-generate_dump "proxy" "$DUMP_DIR/proxy_complete_dump.sql"
+# Array of databases to dump
+DATABASES=(
+    "proxy"
+    "proxy_sds" 
+    "proxy_sds_calibrated"
+    "proxy_sel"
+    "proxy_sel_calibrated"
+)
 
-# Generate proxy_sds database dump  
-echo "🎯 Generating proxy_sds database dump (reference-compatible)..."
-generate_dump "proxy_sds" "$DUMP_DIR/proxy_sds_complete_dump.sql"
+# Generate dumps for all databases
+echo "🎯 Generating dumps for all five databases..."
+DUMP_FILES=()
+DUMP_SIZES=()
+TOTAL_DATABASES=${#DATABASES[@]}
+
+for i in "${!DATABASES[@]}"; do
+    db="${DATABASES[$i]}"
+    current=$((i + 1))
+    echo ""
+    echo "🔄 Processing database $current/$TOTAL_DATABASES: $db"
+    dump_file="$DUMP_DIR/${db}_complete_dump.sql"
+    generate_dump "$db" "$dump_file"
+    
+    # Store for summary
+    DUMP_FILES+=("$dump_file")
+    if [ -f "$dump_file" ]; then
+        DUMP_SIZES+=("$(du -h "$dump_file" | cut -f1)")
+    else
+        DUMP_SIZES+=("ERROR")
+    fi
+done
 
 echo "🎉 All reference-compatible dumps generated successfully!"
 echo ""
 echo "📋 Summary:"
-echo "  - proxy dump: $DUMP_DIR/proxy_complete_dump.sql ($(du -h "$DUMP_DIR/proxy_complete_dump.sql" | cut -f1))"
-echo "  - proxy_sds dump: $DUMP_DIR/proxy_sds_complete_dump.sql ($(du -h "$DUMP_DIR/proxy_sds_complete_dump.sql" | cut -f1))"
+for i in "${!DATABASES[@]}"; do
+    echo "  - ${DATABASES[$i]} dump: ${DUMP_FILES[$i]} (${DUMP_SIZES[$i]})"
+done
 echo ""
-echo "🚀 Ready for Docker build with reference-compatible imports!"
+echo "🚀 Ready for Docker build with reference-compatible imports for all five databases!"
 echo ""
 echo "💡 Key optimizations applied (matching reference container):"
 echo "   - Extended INSERT statements (bulk format)"
@@ -138,4 +173,9 @@ echo "   - NO secondary indexes (PRIMARY KEY only) for 7x faster imports"
 echo "   - utf8mb4_unicode_ci collation (matches reference)"
 echo "   - Single transaction for consistency"
 echo "   - Quick mode for large datasets"
-echo "   - Expected import time: ≤12 minutes (matching reference performance)"
+echo "   - Expected import time: ≤12 minutes per database (matching reference performance)"
+echo ""
+echo "📦 Generated files ready for Docker build:"
+for i in "${!DATABASES[@]}"; do
+    echo "   ${DATABASES[$i]}_complete_dump.sql"
+done

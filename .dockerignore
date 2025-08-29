@@ -28,6 +28,7 @@ Thumbs.db
 
 # Exclude large data files that shouldn't be in Docker image
 *.tar.gz
+*.tar
 *.gz
 *.zip
 *.rar
@@ -37,13 +38,17 @@ docker/mysql-data/
 uploads/
 proxy-outreach.tar.gz
 
+# Exclude ALL SQL dumps for lightweight build (will be mounted from EFS)
+docker/*.sql
+*.sql
+
 # Exclude old SQL dumps but keep the optimized ones
-docker/proxy_backup.sql
-docker/proxy_backup_fresh.sql
-docker/proxy_backup_new.sql
+# docker/proxy_backup.sql
+# docker/proxy_backup_fresh.sql
+# docker/proxy_backup_new.sql
 # Keep our optimized dumps
-!docker/proxy_complete_dump.sql
-!docker/proxy_sds_complete_dump.sql
+# !docker/proxy_complete_dump.sql
+# !docker/proxy_sds_complete_dump.sql
 
 # Development and testing files
 *_progress.log

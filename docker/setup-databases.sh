@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Setup both proxy and proxy_sds databases with proper schemas
+# Setup all five proxy databases with proper schemas
 
 set -e
 
@@ -16,11 +16,14 @@ fi
 
 # Execute SQL using the computed command
 "${MYSQL_CMD[@]}" << EOF
--- Create databases
+-- Create all five databases
 CREATE DATABASE IF NOT EXISTS proxy;
 CREATE DATABASE IF NOT EXISTS proxy_sds;
+CREATE DATABASE IF NOT EXISTS proxy_sds_calibrated;
+CREATE DATABASE IF NOT EXISTS proxy_sel;
+CREATE DATABASE IF NOT EXISTS proxy_sel_calibrated;
 
--- Create webapp user with privileges for both databases
+-- Create webapp user with privileges for all databases
 CREATE USER IF NOT EXISTS 'webapp'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';
 CREATE USER IF NOT EXISTS 'webapp'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
 
@@ -32,6 +35,18 @@ GRANT ALL PRIVILEGES ON proxy.* TO 'webapp'@'%';
 GRANT ALL PRIVILEGES ON proxy_sds.* TO 'webapp'@'localhost';
 GRANT ALL PRIVILEGES ON proxy_sds.* TO 'webapp'@'%';
 
+-- Grant privileges for proxy_sds_calibrated database
+GRANT ALL PRIVILEGES ON proxy_sds_calibrated.* TO 'webapp'@'localhost';
+GRANT ALL PRIVILEGES ON proxy_sds_calibrated.* TO 'webapp'@'%';
+
+-- Grant privileges for proxy_sel database
+GRANT ALL PRIVILEGES ON proxy_sel.* TO 'webapp'@'localhost';
+GRANT ALL PRIVILEGES ON proxy_sel.* TO 'webapp'@'%';
+
+-- Grant privileges for proxy_sel_calibrated database
+GRANT ALL PRIVILEGES ON proxy_sel_calibrated.* TO 'webapp'@'localhost';
+GRANT ALL PRIVILEGES ON proxy_sel_calibrated.* TO 'webapp'@'%';
+
 FLUSH PRIVILEGES;
 
 -- Set root password LAST (safe if already set; will attempt to alter to the same value)
@@ -39,6 +54,6 @@ ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 EOF
 
-echo "✅ Databases and users created successfully!"
+echo "✅ All five databases and users created successfully!"
 echo "� Schema creation will be handled by SQL dump import..."
 echo "✅ Database setup completed!"

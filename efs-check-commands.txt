@@ -1,0 +1,161 @@
+# EFS Content Check Commands for CloudShell
+# Run these commands in AWS CloudShell to check what's stored in fs-07c9b65956846dd51
+
+# Step 1: Set your configuration
+export AWS_REGION="us-east-1"
+export EFS_ID="fs-07c9b65956846dd51"
+export VPC_ID="vpc-0413a65a733c586b4"
+export SUBNET_ID="subnet-048b863399f44469a"
+export SG_ID="sg-0801976936653c8c1"
+
+# Step 2: Verify EFS exists and is available
+echo "🔍 Checking EFS filesystem status..."
+aws efs describe-file-systems \
+    --file-system-id $EFS_ID \
+    --query 'FileSystems[0].{Name:Name,State:LifeCycleState,Size:SizeInBytes.Value,CreationTime:CreationTime}' \
+    --output table \
+    --region $AWS_REGION
+
+# Step 3: Check mount targets
+echo "📡 Checking EFS mount targets..."
+aws efs describe-mount-targets \
+    --file-system-id $EFS_ID \
+    --query 'MountTargets[*].{MountTargetId:MountTargetId,SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,State:LifeCycleState,IP:IpAddress,SecurityGroups:SecurityGroups}' \
+    --output table \
+    --region $AWS_REGION
+
+# Step 4: Launch a temporary EC2 instance to check EFS contents
+echo "🚀 Launching temporary EC2 instance to check EFS contents..."
+INSTANCE_ID=$(aws ec2 run-instances \
+    --image-id ami-0c02fb55956c7d316 \
+    --instance-type t3.micro \
+    --subnet-id $SUBNET_ID \
+    --security-group-ids $SG_ID \
+    --associate-public-ip-address \
+    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=EFS-Content-Checker}]' \
+    --user-data '#!/bin/bash
+exec > >(tee /var/log/efs-check.log) 2>&1
+yum update -y
+yum install -y amazon-efs-utils tree
+mkdir -p /mnt/efs
+mount -t efs fs-07c9b65956846dd51:/ /mnt/efs
+echo "EFS_MOUNT_COMPLETE" > /tmp/efs-ready' \
+    --query 'Instances[0].InstanceId' \
+    --output text \
+    --region $AWS_REGION)
+
+echo "✅ EC2 Instance launched: $INSTANCE_ID"
+
+# Step 5: Wait for instance to be running
+echo "⏳ Waiting for EC2 instance to start..."
+aws ec2 wait instance-running --instance-ids $INSTANCE_ID --region $AWS_REGION
+echo "✅ EC2 instance is running"
+
+# Step 6: Get instance IP for reference
+INSTANCE_IP=$(aws ec2 describe-instances \
+    --instance-ids $INSTANCE_ID \
+    --query 'Reservations[0].Instances[0].PublicIpAddress' \
+    --output text \
+    --region $AWS_REGION)
+
+echo "📍 Instance IP: $INSTANCE_IP"
+echo "📋 Instance ID: $INSTANCE_ID"
+
+# Step 7: Wait for EFS mounting to complete (give it 2-3 minutes)
+echo "⏳ Waiting for EFS mounting to complete (this may take 2-3 minutes)..."
+echo "💡 You can check progress by running the commands below in about 2 minutes"
+
+# Commands to check EFS contents (run these after 2-3 minutes)
+echo ""
+echo "=========================================="
+echo "🔍 COMMANDS TO CHECK EFS CONTENTS"
+echo "=========================================="
+echo "Run these commands after waiting 2-3 minutes for setup to complete:"
+echo ""
+
+# Command 1: Check if EFS is mounted
+echo "# 1. Check if EFS is mounted successfully:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"df -h /mnt/efs && echo EFS_MOUNTED || echo EFS_NOT_MOUNTED\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Command 2: List EFS root contents
+echo "# 2. List EFS root directory contents:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"ls -la /mnt/efs/\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Command 3: Check dumps directory
+echo "# 3. Check dumps directory contents:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"ls -lh /mnt/efs/dumps/ 2>/dev/null || echo dumps directory not found\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Command 4: Count SQL files
+echo "# 4. Count and list all SQL files:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"find /mnt/efs -name *.sql -type f -exec ls -lh {} \\;\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Command 5: Show directory structure
+echo "# 5. Show EFS directory structure:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"tree /mnt/efs -L 3 2>/dev/null || find /mnt/efs -type d | head -20\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Command 6: Check total usage
+echo "# 6. Check total EFS storage usage:"
+echo "aws ssm send-command \\"
+echo "    --instance-ids $INSTANCE_ID \\"
+echo "    --document-name 'AWS-RunShellScript' \\"
+echo "    --parameters 'commands=[\"du -sh /mnt/efs/*\"]' \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# How to get command results
+echo "=========================================="
+echo "📋 HOW TO GET COMMAND RESULTS"
+echo "=========================================="
+echo "After running any command above, get the results with:"
+echo ""
+echo "# Get the most recent command ID:"
+echo "COMMAND_ID=\$(aws ssm list-commands \\"
+echo "    --instance-id $INSTANCE_ID \\"
+echo "    --max-items 1 \\"
+echo "    --query 'Commands[0].CommandId' \\"
+echo "    --output text \\"
+echo "    --region $AWS_REGION)"
+echo ""
+echo "# Get the command output:"
+echo "aws ssm get-command-invocation \\"
+echo "    --command-id \$COMMAND_ID \\"
+echo "    --instance-id $INSTANCE_ID \\"
+echo "    --query 'StandardOutputContent' \\"
+echo "    --output text \\"
+echo "    --region $AWS_REGION"
+echo ""
+
+# Cleanup command
+echo "=========================================="
+echo "🧹 CLEANUP COMMAND"
+echo "=========================================="
+echo "When you're done checking, terminate the instance:"
+echo "aws ec2 terminate-instances --instance-ids $INSTANCE_ID --region $AWS_REGION"
+echo ""
+
+echo "✅ Setup complete! Wait 2-3 minutes, then run the commands above to check your EFS contents."

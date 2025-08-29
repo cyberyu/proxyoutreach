@@ -1,5 +1,6 @@
 # Multi-stage Docker build for Proxy Account Outreach System
-# Includes all databases, sample data generation, and ingestion logic
+# Includes all five databases: proxy, proxy_sds, proxy_sds_calibrated, proxy_sel, proxy_sel_calibrated
+# Based on reference-compatible format for optimal performance
 
 FROM ubuntu:22.04 as base
 
@@ -9,6 +10,9 @@ ENV NODE_VERSION=20.19.4
 ENV MYSQL_ROOT_PASSWORD=rootpass
 ENV MYSQL_DATABASE=proxy
 ENV MYSQL_SDS_DATABASE=proxy_sds
+ENV MYSQL_SDS_CALIBRATED_DATABASE=proxy_sds_calibrated
+ENV MYSQL_SEL_DATABASE=proxy_sel
+ENV MYSQL_SEL_CALIBRATED_DATABASE=proxy_sel_calibrated
 ENV MYSQL_USER=webapp
 ENV MYSQL_PASSWORD=webapppass
 
@@ -45,9 +49,12 @@ RUN npm install
 # Copy application code (using specific ignore patterns)
 COPY . .
 
-# Copy SQL dumps for fast database initialization (place into /tmp for start script)
+# Copy SQL dumps for fast database initialization - ALL FIVE DATABASES
 COPY docker/proxy_complete_dump.sql /tmp/proxy_complete_dump.sql
 COPY docker/proxy_sds_complete_dump.sql /tmp/proxy_sds_complete_dump.sql
+COPY docker/proxy_sds_calibrated_complete_dump.sql /tmp/proxy_sds_calibrated_complete_dump.sql
+COPY docker/proxy_sel_complete_dump.sql /tmp/proxy_sel_complete_dump.sql
+COPY docker/proxy_sel_calibrated_complete_dump.sql /tmp/proxy_sel_calibrated_complete_dump.sql
 
 # Use default MySQL configuration (like reference container)
 

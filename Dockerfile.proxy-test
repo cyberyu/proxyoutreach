@@ -1,0 +1,18 @@
+# Dockerfile.proxy-test
+# Quick test image with only proxy database dump
+
+FROM mysql:8.0
+
+# Environment variables
+ENV MYSQL_ROOT_PASSWORD=rootpass
+ENV MYSQL_DATABASE=proxy
+ENV MYSQL_USER=webapp
+ENV MYSQL_PASSWORD=webapppass
+
+# Copy only the proxy dump for testing
+COPY docker/proxy_complete_dump.sql /docker-entrypoint-initdb.d/
+
+# The MySQL image will automatically import any .sql files in /docker-entrypoint-initdb.d/
+# when the container starts for the first time
+
+EXPOSE 3306

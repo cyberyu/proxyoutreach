@@ -1,0 +1,25 @@
+# Data-only Dockerfile for SQL dumps
+# This creates a lightweight container that only contains the SQL dumps
+
+FROM alpine:latest
+
+# Create directory for dumps
+RUN mkdir -p /data/dumps
+
+# Copy all SQL dump files
+COPY docker/proxy_complete_dump.sql /data/dumps/
+COPY docker/proxy_sds_complete_dump.sql /data/dumps/
+COPY docker/proxy_sds_calibrated_complete_dump.sql /data/dumps/
+COPY docker/proxy_sel_complete_dump.sql /data/dumps/
+COPY docker/proxy_sel_calibrated_complete_dump.sql /data/dumps/
+
+# Create a simple script to copy files and exit
+RUN echo '#!/bin/sh' > /copy-dumps.sh && \
+    echo 'echo "📦 Copying SQL dumps to shared volume..."' >> /copy-dumps.sh && \
+    echo 'cp -v /data/dumps/* /shared/dumps/' >> /copy-dumps.sh && \
+    echo 'echo "✅ SQL dumps copied successfully"' >> /copy-dumps.sh && \
+    echo 'ls -lh /shared/dumps/' >> /copy-dumps.sh && \
+    chmod +x /copy-dumps.sh
+
+# The init container will run this script and exit
+CMD ["/copy-dumps.sh"]

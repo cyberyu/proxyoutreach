@@ -1,0 +1,75 @@
+# ECS-optimized Dockerfile for proxy outreach application
+# Downloads SQL dumps from S3 at runtime
+
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Environment variables for MySQL
+ENV MYSQL_ROOT_PASSWORD=root_password_2024
+ENV MYSQL_USER=webapp
+ENV MYSQL_PASSWORD=webapp_password_2024
+
+# Install system dependencies including AWS CLI
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    apt-transport-https \
+    software-properties-common \
+    python3 \
+    python3-pip \
+    mysql-server \
+    mysql-client \
+    supervisor \
+    jq \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install \
+    && rm -rf aws awscliv2.zip
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+
+# Set working directory
+WORKDIR /usr/src/app
+
+# Copy Python requirements and install
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install -r /tmp/requirements.txt
+
+# Copy package.json and install Node.js dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy application code (excluding SQL dumps)
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /usr/src/app/data/sql \
+    && mkdir -p /usr/src/app/data/parquet \
+    && mkdir -p /usr/src/app/data/excel \
+    && mkdir -p /usr/src/app/data/dumps \
+    && mkdir -p /var/run/mysqld \
+    && mkdir -p /var/log/mysql
+
+# Configure MySQL
+RUN chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql
+
+# Copy the ECS-optimized startup script
+COPY docker/start-ecs.sh /usr/local/bin/start-ecs.sh
+RUN chmod +x /usr/local/bin/start-ecs.sh
+
+# Expose port
+EXPOSE 3000
+
+# Use the ECS startup script
+CMD ["/usr/local/bin/start-ecs.sh"]
