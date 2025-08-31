@@ -1,6 +1,5 @@
 // Global variables
 let accounts = [];
-let outreachLogs = [];
 let currentEditingAccount = null;
 
 // API URL base

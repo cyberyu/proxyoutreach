@@ -82,13 +82,6 @@ The application creates two main tables:
    - last_contact_date
    - notes
 
-2. **outreach_logs**: Tracks outreach activities
-   - account_id (foreign key)
-   - contact_method (email/phone/meeting)
-   - contact_date
-   - outcome
-   - notes
-
 ## Usage
 
 ### Importing Data

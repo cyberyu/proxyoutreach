@@ -25,7 +25,6 @@ async function fetchAllProposals() {
 // Debug legend function removed
 // Global variables
 // FIXED EVENT TARGET BUG - Version 2.0 - 2025-08-23 16:00
-let outreachLogs = [];
 
 // Global fetch wrapper to include credentials
 const fetchWithCredentials = (url, options = {}) => {
@@ -301,13 +300,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(error => console.error('Backup approach failed:', error));
         }, 2000);
         
-        // Try to load outreach logs if function exists
-        if (typeof loadOutreachLogs === 'function') {
-            loadOutreachLogs();
-        } else {
-            console.log('loadOutreachLogs function not found, skipping...');
-        }
-        
         // Set current date as default for contact date (if element exists)
         const contactDateElement = document.getElementById('contactDateInput');
         if (contactDateElement) {
@@ -378,9 +370,6 @@ function showSection(sectionName, event = null) {
             try {
                 if (typeof window !== 'undefined') window.selectedUnvotedProposalAccountIds = [];
             } catch (e) { /* noop */ }
-            break;
-        case 'outreach':
-            loadOutreachLogs();
             break;
         case 'outreach-accounts':
             loadOutreachAccounts();
@@ -901,107 +890,6 @@ function updateSelectedUnvotedSharesLegend() {
     const legend = document.getElementById('dataLegendSelectedShares');
     if (legend) {
         legend.textContent = `Total Shares from Selected Unvoted Accounts: ${totalShares.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
-    }
-}
-
-// Outreach log functions
-async function loadOutreachLogs() {
-    try {
-        const response = await fetch(`${API_BASE}/api/outreach-logs`);
-        outreachLogs = await response.json();
-        
-        renderOutreachLogsTable();
-        
-    } catch (error) {
-        console.error('Error loading outreach logs:', error);
-        showAlert('Error loading outreach logs', 'danger');
-    }
-}
-
-function renderOutreachLogsTable() {
-    const tbody = document.getElementById('outreachLogsTableBody');
-    
-    if (outreachLogs.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="6" class="text-center py-4">
-                    <div class="empty-state">
-                        <i class="fas fa-phone"></i>
-                        <p>No outreach logs found</p>
-                    </div>
-                </td>
-            </tr>
-        `;
-        return;
-    }
-    
-    tbody.innerHTML = outreachLogs.map(log => `
-        <tr>
-            <td>${formatDate(log.contact_date)}</td>
-            <td>${log.account_id}</td>
-            <td>${log.account_name || '-'}</td>
-            <td>
-                <span class="badge bg-secondary">
-                    <i class="fas fa-${getContactMethodIcon(log.contact_method)} me-1"></i>
-                    ${log.contact_method}
-                </span>
-            </td>
-            <td>${log.outcome || '-'}</td>
-            <td>${log.notes || '-'}</td>
-        </tr>
-    `).join('');
-}
-
-function getContactMethodIcon(method) {
-    switch(method) {
-        case 'email': return 'envelope';
-        case 'phone': return 'phone';
-        case 'meeting': return 'users';
-        default: return 'comment';
-    }
-}
-
-function showAddOutreachModal() {
-    document.getElementById('outreachForm').reset();
-    document.getElementById('contactDateInput').valueAsDate = new Date();
-    
-    const modal = new bootstrap.Modal(document.getElementById('outreachModal'));
-    modal.show();
-}
-
-async function saveOutreachLog() {
-    const logData = {
-        account_id: document.getElementById('outreachAccountId').value,
-        contact_method: document.getElementById('contactMethodInput').value,
-        contact_date: document.getElementById('contactDateInput').value,
-        outcome: document.getElementById('outcomeInput').value,
-        notes: document.getElementById('outreachNotesInput').value
-    };
-    
-    try {
-        const response = await fetch(`${API_BASE}/api/outreach-logs`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(logData)
-        });
-        
-        if (response.ok) {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('outreachModal'));
-            modal.hide();
-            
-            showAlert('Outreach log created successfully', 'success');
-            loadOutreachLogs();
-            
-        } else {
-            const error = await response.json();
-            showAlert('Error saving outreach log: ' + error.error, 'danger');
-        }
-        
-    } catch (error) {
-        console.error('Error saving outreach log:', error);
-        showAlert('Error saving outreach log', 'danger');
     }
 }
 
@@ -2445,14 +2333,6 @@ function getContactMethodIcon(method) {
     }
 }
 
-function showAddOutreachModal() {
-    document.getElementById('outreachForm').reset();
-    document.getElementById('contactDateInput').valueAsDate = new Date();
-    
-    const modal = new bootstrap.Modal(document.getElementById('outreachModal'));
-    modal.show();
-}
-
 // Global browser-side sorting function
 function toggleSort(field, sidePrefix) {
     // Initialize current state if it doesn't exist
@@ -2843,7 +2723,6 @@ async function showDatabaseStats() {
                             <p><strong>Total Accounts:</strong> ${stats.total_accounts ? stats.total_accounts.toLocaleString() : 'N/A'}</p>
                         </div>
                         <div class="col-md-6">
-                            <p><strong>Outreach Logs:</strong> ${stats.outreach_logs ? stats.outreach_logs.toLocaleString() : 'N/A'}</p>
                             <p><strong>Proposals:</strong> ${stats.proposals ? stats.proposals.toLocaleString() : 'N/A'}</p>
                             <p><strong>Database Size:</strong> ${stats.database_size || 'N/A'}</p>
                         </div>
@@ -3140,8 +3019,6 @@ async function applyIssuerFilter() {
                 loadDashboardData();
             } else if (sectionId === 'proposals') {
                 loadProposalsData();
-            } else if (sectionId === 'outreach') {
-                loadOutreachLogs();
             }
         }
         
@@ -3248,11 +3125,6 @@ window.showSection = function(section) {
         try {
             if (typeof window !== 'undefined') window.selectedUnvotedProposalAccountIds = [];
         } catch (e) { /* noop */ }
-        return;
-    }
-    if (section === 'outreach') {
-        { const el = document.getElementById('outreach-section'); if (el) el.style.display = 'block'; }
-        loadOutreachLogs();
         return;
     }
     if (section === 'outreach-accounts') {

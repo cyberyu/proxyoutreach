@@ -2744,7 +2744,6 @@ async function showDatabaseStats() {
                             <p><strong>Total Accounts:</strong> ${stats.total_accounts ? stats.total_accounts.toLocaleString() : 'N/A'}</p>
                         </div>
                         <div class="col-md-6">
-                            <p><strong>Outreach Logs:</strong> ${stats.outreach_logs ? stats.outreach_logs.toLocaleString() : 'N/A'}</p>
                             <p><strong>Proposals:</strong> ${stats.proposals ? stats.proposals.toLocaleString() : 'N/A'}</p>
                             <p><strong>Database Size:</strong> ${stats.database_size || 'N/A'}</p>
                         </div>

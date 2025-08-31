@@ -87,19 +87,6 @@ function buildIssuerFilter(req, tableAlias = '') {
 
 // Initialize database and tables
 function initializeDatabase() {
-  // Create outreach_logs table
-  const createOutreachLogsTable = `
-    CREATE TABLE IF NOT EXISTS outreach_logs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      account_id VARCHAR(255),
-      contact_method ENUM('email', 'phone', 'meeting'),
-      contact_date DATE,
-      outcome VARCHAR(255),
-      notes TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `;
-
   // Create outreach table (make schema identical to account_unvoted) and migrate if needed
   const createOutreachTable = `
     CREATE TABLE IF NOT EXISTS outreach (
@@ -122,11 +109,6 @@ function initializeDatabase() {
       INDEX idx_outreach_dm (director_master_skey)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `;
-
-  db.query(createOutreachLogsTable, (err) => {
-    if (err) console.error('Error creating outreach_logs table:', err);
-    else console.log('Outreach logs table ready');
-  });
 
   db.query(createOutreachTable, (err) => {
     if (err) console.error('Error creating outreach table:', err);
@@ -259,44 +241,6 @@ function insertAccountData(data, res) {
     errors: data.length
   });
 }
-
-// Get outreach logs
-app.get('/api/outreach-logs', (req, res) => {
-  const query = `
-    SELECT ol.*
-    FROM outreach_logs ol
-    ORDER BY ol.contact_date DESC
-  `;
-
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Error fetching outreach logs:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    res.json(results);
-  });
-});
-
-// Add outreach log
-app.post('/api/outreach-logs', (req, res) => {
-  const { account_id, contact_method, contact_date, outcome, notes } = req.body;
-
-  const query = `
-    INSERT INTO outreach_logs (account_id, contact_method, contact_date, outcome, notes)
-    VALUES (?, ?, ?, ?, ?)
-  `;
-
-  db.query(query, [account_id, contact_method, contact_date, outcome, notes], (err, result) => {
-    if (err) {
-      console.error('Error creating outreach log:', err);
-      res.status(500).json({ error: 'Internal server error' });
-      return;
-    }
-    
-    res.status(201).json({ message: 'Outreach log created successfully', id: result.insertId });
-  });
-});
 
 // Get dashboard statistics
 app.get('/api/dashboard', (req, res) => {
@@ -670,10 +614,6 @@ app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
     // Calculate total accounts
     stats.total_accounts = stats.voted_count + stats.unvoted_count;
     
-    // Get outreach logs count
-    const [outreachResult] = await db.promise().query('SELECT COUNT(*) as count FROM outreach_logs');
-    stats.outreach_logs = outreachResult[0].count;
-    
     // Get proposals count
     const [proposalsResult] = await db.promise().query('SELECT COUNT(DISTINCT proposal_master_skey) as count FROM proposals_predictions');
     stats.proposals = proposalsResult[0].count;
@@ -944,7 +884,6 @@ app.post('/api/admin/export-database', (req, res) => {
 app.post('/api/admin/clear-database', async (req, res) => {
   try {
     // This is dangerous - in production, add proper authentication
-    await db.promise().query('DELETE FROM outreach_logs');
     await db.promise().query('DELETE FROM outreach');
     await db.promise().query('DELETE FROM account_voted');
     await db.promise().query('DELETE FROM account_unvoted');
