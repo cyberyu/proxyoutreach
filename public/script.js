@@ -174,18 +174,34 @@ const ADMIN_PASSWORD = '12345678';
 
 // Prompt for admin login
 function promptAdminLogin() {
-    // Reset form
-    document.getElementById('adminPassword').value = '';
-    document.getElementById('adminLoginError').style.display = 'none';
-    
-    // Show modal
-    const modal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
-    modal.show();
-    
-    // Focus on password field
-    setTimeout(() => {
-        document.getElementById('adminPassword').focus();
-    }, 500);
+    return new Promise((resolve) => {
+        // Reset form
+        document.getElementById('adminPassword').value = '';
+        document.getElementById('adminLoginError').style.display = 'none';
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
+        modal.show();
+        
+        // Store the resolve function for later use in verifyAdminPassword
+        window._adminLoginResolve = resolve;
+        
+        // Handle modal close events (user cancels)
+        const modalElement = document.getElementById('adminLoginModal');
+        const handleModalClose = () => {
+            if (window._adminLoginResolve && !isAdminAuthenticated) {
+                window._adminLoginResolve(false);
+                window._adminLoginResolve = null;
+            }
+            modalElement.removeEventListener('hidden.bs.modal', handleModalClose);
+        };
+        modalElement.addEventListener('hidden.bs.modal', handleModalClose);
+        
+        // Focus on password field
+        setTimeout(() => {
+            document.getElementById('adminPassword').focus();
+        }, 500);
+    });
 }
 
 // Verify admin password
@@ -223,6 +239,12 @@ async function verifyAdminPassword() {
             
             // Show success message
             showAlert('Admin access granted', 'success');
+            
+            // Resolve the Promise with success
+            if (window._adminLoginResolve) {
+                window._adminLoginResolve(true);
+                window._adminLoginResolve = null;
+            }
             return;
         }
     } catch (error) {
@@ -248,12 +270,20 @@ async function verifyAdminPassword() {
         
         // Show success message
         showAlert('Admin access granted', 'success');
+        
+        // Resolve the Promise with success
+        if (window._adminLoginResolve) {
+            window._adminLoginResolve(true);
+            window._adminLoginResolve = null;
+        }
     } else {
         // Show error
         errorDiv.textContent = 'Invalid password. Please try again.';
         errorDiv.style.display = 'block';
         document.getElementById('adminPassword').value = '';
         document.getElementById('adminPassword').focus();
+        
+        // Don't resolve the Promise yet - let user try again
     }
 }
 
@@ -376,11 +406,29 @@ function showSection(sectionName, event = null) {
             break;
         case 'admin':
             if (!isAdminAuthenticated) {
-                showAlert('Admin authentication required', 'warning');
-                showSection('dashboard', null);
+                // Show admin section but trigger authentication flow
+                setTimeout(async () => {
+                    const success = await promptAdminLogin();
+                    if (success) {
+                        // After successful authentication, auto-load database information
+                        if (document.getElementById('databaseSelector')) {
+                            console.log('Auto-loading database information after admin login...');
+                            manageDatabases().catch(console.error);
+                        }
+                    } else {
+                        // User cancelled authentication, go back to dashboard
+                        showSection('dashboard', null);
+                    }
+                }, 100);
                 return;
             }
-            // Admin section loaded, no specific data loading needed
+            // Auto-load database information when admin section is first shown (already authenticated)
+            setTimeout(() => {
+                if (document.getElementById('databaseSelector')) {
+                    console.log('Auto-loading database information for admin section...');
+                    manageDatabases().catch(console.error);
+                }
+            }, 100); // Small delay to ensure DOM elements are rendered
             break;
     }
 }
