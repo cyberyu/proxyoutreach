@@ -2350,6 +2350,13 @@ function resetAllFilters() {
             delta2Filter.value = 'all';
         }
         
+        // Reset proposal filter tracking variables
+        proposalFilters = { delta1: '', delta2: '' };
+        
+        // Clear proposals arrays to prevent stale data during database switch
+        proposals = [];
+        allProposalsData = [];
+        
         // Reset account filters
         const votingStatusFilter = document.getElementById('votingStatusFilter');
         const outreachStatusFilter = document.getElementById('outreachStatusFilter');
@@ -2361,18 +2368,25 @@ function resetAllFilters() {
             outreachStatusFilter.value = 'all';
         }
         
-        // Clear any confusion matrix filters if they exist
-        const confusionFilters = document.querySelectorAll('[id*="confusion"][id*="Filter"]');
-        confusionFilters.forEach(filter => {
-            if (filter.tagName === 'SELECT') {
-                filter.value = filter.querySelector('option[value="all"]') ? 'all' : '';
-            } else if (filter.tagName === 'INPUT') {
-                filter.value = '';
-                filter.checked = false;
+        // Clear confusion matrix filters (both UI elements and stored state)
+        window.confusionMatrixFilters = {
+            issuer: '-- ALL --',
+            type: '-- ALL --',
+            outcome: '-- ALL --',
+            categorization: '-- ALL --',
+            subcategorization: '-- ALL --'
+        };
+        
+        // Reset confusion matrix filter dropdowns if they exist in DOM
+        const confusionFilterElements = ['filterIssuer', 'filterType', 'filterOutcome', 'filterCategorization', 'filterSubcategorization'];
+        confusionFilterElements.forEach(filterId => {
+            const element = document.getElementById(filterId);
+            if (element && element.tagName === 'SELECT') {
+                element.value = '-- ALL --';
             }
         });
         
-        console.log('All filters reset to default values');
+        console.log('All filters reset to default values and proposals arrays cleared');
     } catch (error) {
         console.error('Error resetting filters:', error);
     }
@@ -2412,6 +2426,9 @@ async function setTargetDatabase() {
             // Reset all filters to prevent deadlocks with previous database filter states
             resetAllFilters();
             
+            // Clear issuer filters since they're database-specific
+            await clearIssuerFilters();
+            
             // Update current database info
             const currentInfo = document.getElementById('currentDatabaseInfo');
             if (currentInfo) {
@@ -2425,7 +2442,22 @@ async function setTargetDatabase() {
                 updateProposalsHeader();
                 // Reload proposals data for the new database
                 if (typeof loadProposalsTable === 'function') {
-                    loadProposalsTable();
+                    await loadProposalsTable(); // Wait for proposals to load
+                }
+            }
+            
+            // Clear any existing confusion matrix data since it's from the old database
+            const confusionContainer = document.getElementById('confusionMatrixContainer');
+            if (confusionContainer && confusionContainer.style.display !== 'none') {
+                const confusionTableDiv = document.getElementById('confusionMatrixTable');
+                if (confusionTableDiv) {
+                    confusionTableDiv.innerHTML = `
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Database switched to ${result.currentDatabase}. 
+                            <a href="javascript:void(0)" onclick="showProposalConfusion()">Click here to reload confusion matrix</a> with new data.
+                        </div>
+                    `;
                 }
             }
             
@@ -3114,7 +3146,7 @@ function clearAllIssuers() {
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
     
     if (checkboxes.length === 0) {
-        showAlert('No issuer checkboxes found', 'warning');
+        console.log('No issuer checkboxes found - UI may not be loaded yet');
         return;
     }
     
@@ -3127,6 +3159,39 @@ function clearAllIssuers() {
     }
     
     updateSelectedCount();
+    console.log(`✅ Cleared ${checkboxes.length} issuer checkboxes`);
+}
+
+// Clear issuer filters (called when switching databases)
+async function clearIssuerFilters() {
+    try {
+        // Clear UI checkboxes only if they exist
+        const checkboxes = document.querySelectorAll('.issuer-checkbox');
+        if (checkboxes.length > 0) {
+            clearAllIssuers();
+        } else {
+            console.log('No issuer checkboxes found - skipping UI clear');
+        }
+        
+        // Clear session-based issuer filters on the server
+        const response = await fetchWithCredentials('/api/admin/set-selected-issuers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ selectedIssuers: [] })
+        });
+        
+        if (!response.ok) {
+            console.warn('Failed to clear issuer filters on server:', response.statusText);
+        } else {
+            console.log('✅ Server-side issuer filters cleared');
+        }
+        
+        console.log('Issuer filters cleared for database switch');
+    } catch (error) {
+        console.error('Error clearing issuer filters:', error);
+    }
 }
 
 // Toggle all issuers from header checkbox
@@ -3456,17 +3521,49 @@ async function showProposalConfusion(proposalId = null) {
         
         // Calculate and show real confusion matrix data using ALL proposals
         setTimeout(async () => {
-            // If showing all proposals, fetch all pages
+            // If showing all proposals, fetch all pages to ensure we have current data
             if (!proposalId) {
                 try {
+                    console.log('Fetching all proposals for confusion matrix...');
                     const allProposals = await fetchAllProposals();
                     if (Array.isArray(allProposals) && allProposals.length > 0) {
                         proposals = allProposals;
+                        console.log(`Updated proposals array with ${proposals.length} proposals from current database`);
+                    } else {
+                        console.warn('fetchAllProposals returned empty array or invalid data');
+                        // If fetchAllProposals fails, try to load from current proposals view
+                        if (Array.isArray(allProposalsData) && allProposalsData.length > 0) {
+                            proposals = [...allProposalsData];
+                            console.log(`Using allProposalsData with ${proposals.length} proposals as fallback`);
+                        }
                     }
                 } catch (e) {
                     console.error('Failed to fetch all proposals for confusion matrix:', e);
+                    // Fallback to existing proposals data if available
+                    if (Array.isArray(allProposalsData) && allProposalsData.length > 0) {
+                        proposals = [...allProposalsData];
+                        console.log(`Using existing allProposalsData with ${proposals.length} proposals as fallback`);
+                    }
                 }
             }
+            
+            // Ensure we have proposals data before calculating
+            if (!Array.isArray(proposals) || proposals.length === 0) {
+                console.warn('No proposals data available for confusion matrix');
+                const confusionData = {
+                    matrix: { 'true_positive': 0, 'false_positive': 0, 'false_negative': 0, 'true_negative': 0 },
+                    metrics: { accuracy: 0, precision: 0, recall: 0, f1_score: 0 },
+                    dataInfo: {
+                        totalProposals: 0,
+                        validProposals: 0,
+                        message: 'No valid prediction data available',
+                        proposals: []
+                    }
+                };
+                renderConfusionMatrix(confusionData);
+                return;
+            }
+            
             const confusionData = calculateRealConfusionMatrix(proposalId);
             renderConfusionMatrix(confusionData);
         }, 300); // Brief loading animation

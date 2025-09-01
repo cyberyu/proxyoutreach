@@ -15,7 +15,7 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Session configuration for issuer filtering
 app.use(session({
@@ -756,6 +756,10 @@ app.post('/api/admin/set-database', requireAdmin, async (req, res) => {
     
     // Update current database tracking
     currentDatabase = database;
+    
+    // Clear all session-based filters to prevent "no records found" issues
+    // when switching between databases with different data structures
+    req.session.selectedIssuers = [];
     
     // Update the database configuration and recreate the pool
     dbConfig.database = database;
