@@ -8,6 +8,11 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 const session = require('express-session');
+const { exec } = require('child_process');
+const util = require('util');
+
+// Promisify exec for async/await usage
+const execAsync = util.promisify(exec);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -44,25 +49,175 @@ const upload = multer({ storage: storage });
 // Current database tracking
 let currentDatabase = 'proxy';
 
-// MySQL connection
-const db = mysql.createConnection({
+// MySQL connection configuration with reconnection settings
+const dbConfig = {
   host: 'localhost',
   user: 'webapp',
   password: 'webapppass',
-  database: 'proxy'
-});
-
-// Connect to MySQL
-db.connect((err) => {
-  if (err) {
-    console.error('Error connecting to MySQL:', err);
-    return;
+  database: 'proxy',
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true,
+  pool: {
+    min: 0,
+    max: 10,
+    acquireTimeoutMillis: 30000,
+    createTimeoutMillis: 30000,
+    destroyTimeoutMillis: 5000,
+    idleTimeoutMillis: 300000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 200
   }
-  console.log('Connected to MySQL database');
-  
-  // Create database and tables if they don't exist
-  initializeDatabase();
-});
+};
+
+// Create connection pool instead of single connection for better stability
+let pool = mysql.createPool(dbConfig);
+
+// MySQL connection wrapper with automatic reconnection
+let db = {
+  query: (sql, params) => {
+    return new Promise((resolve, reject) => {
+      pool.execute(sql, params, (err, results) => {
+        if (err) {
+          console.error('Database query error:', err);
+          // If connection error, try to restart MySQL and reconnect
+          if (err.code === 'PROTOCOL_CONNECTION_LOST' || 
+              err.code === 'ECONNRESET' || 
+              err.code === 'ECONNREFUSED') {
+            console.log('🔄 Connection lost, attempting MySQL restart...');
+            restartMySQLService();
+          }
+          reject(err);
+        } else {
+          resolve(results);
+        }
+      });
+    });
+  },
+  execute: (sql, params, callback) => {
+    pool.execute(sql, params, callback);
+  }
+};
+
+// MySQL service restart functionality
+async function restartMySQLService() {
+  try {
+    console.log('🔄 Restarting MySQL service...');
+    
+    // Try different restart commands based on the system
+    const restartCommands = [
+      'sudo systemctl restart mysql',
+      'sudo service mysql restart',
+      'sudo systemctl restart mysqld',
+      'sudo service mysqld restart'
+    ];
+    
+    for (const command of restartCommands) {
+      try {
+        console.log(`Trying: ${command}`);
+        await execAsync(command);
+        console.log('✅ MySQL service restarted successfully');
+        
+        // Wait a moment for MySQL to fully start
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Recreate the connection pool
+        if (pool) {
+          pool.end();
+        }
+        pool = mysql.createPool(dbConfig);
+        
+        // Test the connection
+        await testMySQLConnection();
+        return true;
+        
+      } catch (err) {
+        console.log(`❌ Failed with ${command}:`, err.message);
+        continue;
+      }
+    }
+    
+    console.error('❌ All MySQL restart attempts failed');
+    return false;
+    
+  } catch (error) {
+    console.error('❌ Error restarting MySQL service:', error);
+    return false;
+  }
+}
+
+// Test MySQL connection
+async function testMySQLConnection() {
+  return new Promise((resolve, reject) => {
+    pool.execute('SELECT 1 as test', [], (err, results) => {
+      if (err) {
+        console.error('❌ MySQL connection test failed:', err);
+        reject(err);
+      } else {
+        console.log('✅ MySQL connection test passed');
+        resolve(results);
+      }
+    });
+  });
+}
+
+// Health check for MySQL service
+async function mysqlHealthCheck() {
+  try {
+    await testMySQLConnection();
+    return true;
+  } catch (error) {
+    console.log('🏥 MySQL health check failed, attempting restart...');
+    return await restartMySQLService();
+  }
+}
+
+// Periodic MySQL health check and restart (every 30 minutes)
+setInterval(async () => {
+  console.log('🏥 Running periodic MySQL health check...');
+  const isHealthy = await mysqlHealthCheck();
+  if (!isHealthy) {
+    console.error('❌ MySQL health check failed even after restart attempt');
+  }
+}, 30 * 60 * 1000); // 30 minutes
+
+// Preventive MySQL restart (every 4 hours to prevent memory leaks)
+setInterval(async () => {
+  console.log('🔄 Running preventive MySQL restart (every 4 hours)...');
+  await restartMySQLService();
+}, 4 * 60 * 60 * 1000); // 4 hours
+
+// Connect to MySQL with initial health check
+async function initializeMySQLConnection() {
+  try {
+    console.log('🔌 Initializing MySQL connection...');
+    
+    // Test initial connection
+    await testMySQLConnection();
+    console.log('✅ Connected to MySQL database');
+    
+    // Create database and tables if they don't exist
+    await initializeDatabase();
+    
+    // Start periodic health checks
+    console.log('🏥 Started MySQL health monitoring');
+    
+  } catch (error) {
+    console.error('❌ Error connecting to MySQL:', error);
+    console.log('🔄 Attempting MySQL service restart...');
+    
+    const restarted = await restartMySQLService();
+    if (restarted) {
+      await initializeDatabase();
+    } else {
+      console.error('❌ Failed to establish MySQL connection after restart');
+      process.exit(1);
+    }
+  }
+}
+
+// Initialize the connection
+initializeMySQLConnection();
 
 // Helper function to build issuer filter for queries
 function buildIssuerFilter(req, tableAlias = '') {
@@ -86,95 +241,159 @@ function buildIssuerFilter(req, tableAlias = '') {
 }
 
 // Initialize database and tables
-function initializeDatabase() {
-  // Create outreach table (make schema identical to account_unvoted) and migrate if needed
-  const createOutreachTable = `
-    CREATE TABLE IF NOT EXISTS outreach (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      row_index INT NULL,
-      unnamed_col VARCHAR(255) NULL,
-      account_hash_key VARCHAR(255) NOT NULL,
-      proposal_master_skey BIGINT NULL,
-      director_master_skey BIGINT NULL,
-      account_type VARCHAR(100) NULL,
-      shares_summable DECIMAL(20,2) NULL,
-      rank_of_shareholding INT NULL,
-      score_model1 DECIMAL(10,6) NULL,
-      prediction_model1 TINYINT NULL,
-      Target_encoded INT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
-      INDEX idx_outreach_hash (account_hash_key),
-      INDEX idx_outreach_pm (proposal_master_skey),
-      INDEX idx_outreach_dm (director_master_skey)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `;
+async function initializeDatabase() {
+  try {
+    // Create outreach table (make schema identical to account_unvoted) and migrate if needed
+    const createOutreachTable = `
+      CREATE TABLE IF NOT EXISTS outreach (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        row_index INT NULL,
+        unnamed_col VARCHAR(255) NULL,
+        account_hash_key VARCHAR(255) NOT NULL,
+        proposal_master_skey BIGINT NULL,
+        director_master_skey BIGINT NULL,
+        account_type VARCHAR(100) NULL,
+        shares_summable DECIMAL(20,2) NULL,
+        rank_of_shareholding INT NULL,
+        score_model1 DECIMAL(10,6) NULL,
+        prediction_model1 TINYINT NULL,
+        Target_encoded INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
+        INDEX idx_outreach_hash (account_hash_key),
+        INDEX idx_outreach_pm (proposal_master_skey),
+        INDEX idx_outreach_dm (director_master_skey)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `;
 
-  db.query(createOutreachTable, (err) => {
-    if (err) console.error('Error creating outreach table:', err);
-    else console.log('Outreach table ready (schema aligned with account_unvoted)');
+    await db.query(createOutreachTable, []);
+    console.log('✅ Outreach table ready (schema aligned with account_unvoted)');
 
     // Simple migration: Check if table has new schema, if not recreate it
-    db.query("SHOW COLUMNS FROM outreach LIKE 'account_hash_key'", (err, checkResult) => {
-      if (err) {
-        console.log('Migration check failed:', err.message);
-        return;
+    const checkResult = await db.query("SHOW COLUMNS FROM outreach LIKE 'account_hash_key'", []);
+    
+    if (checkResult.length === 0) {
+      console.log('🔄 Outreach table needs schema migration - recreating...');
+      
+      // Backup any existing data first
+      let backupData = [];
+      try {
+        backupData = await db.query('SELECT * FROM outreach', []);
+        console.log(`📁 Backing up ${backupData.length} existing outreach records`);
+      } catch (err) {
+        console.log('ℹ️  No existing data to backup');
       }
       
-      if (checkResult.length === 0) {
-        console.log('Outreach table needs schema migration - recreating...');
-        
-        // Backup any existing data first
-        db.query('SELECT * FROM outreach', (err, backupData) => {
-          if (err) {
-            console.log('No existing data to backup');
-            backupData = [];
-          } else {
-            console.log(`Backing up ${backupData.length} existing outreach records`);
-          }
-          
-          // Drop and recreate with new schema
-          db.query('DROP TABLE IF EXISTS outreach', (err) => {
-            if (err) {
-              console.log('Error dropping outreach table:', err.message);
-              return;
-            }
-            
-            const newTableSQL = `
-              CREATE TABLE outreach (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                row_index INT NULL,
-                unnamed_col VARCHAR(255) NULL,
-                account_hash_key VARCHAR(255) NOT NULL,
-                proposal_master_skey BIGINT NULL,
-                director_master_skey BIGINT NULL,
-                account_type VARCHAR(100) NULL,
-                shares_summable DECIMAL(20,2) NULL,
-                rank_of_shareholding INT NULL,
-                score_model1 DECIMAL(10,6) NULL,
-                prediction_model1 TINYINT NULL,
-                Target_encoded INT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
-                INDEX idx_outreach_hash (account_hash_key),
-                INDEX idx_outreach_pm (proposal_master_skey),
-                INDEX idx_outreach_dm (director_master_skey)
-              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            `;
-            
-            db.query(newTableSQL, (err) => {
-              if (err) {
-                console.log('Error recreating outreach table:', err.message);
-              } else {
-                console.log('Outreach table recreated with account_unvoted-compatible schema');
-              }
-            });
-          });
-        });
-      }
-    });
-  });
+      // Drop and recreate with new schema
+      await db.query('DROP TABLE IF EXISTS outreach', []);
+      
+      const newTableSQL = `
+        CREATE TABLE outreach (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          row_index INT NULL,
+          unnamed_col VARCHAR(255) NULL,
+          account_hash_key VARCHAR(255) NOT NULL,
+          proposal_master_skey BIGINT NULL,
+          director_master_skey BIGINT NULL,
+          account_type VARCHAR(100) NULL,
+          shares_summable DECIMAL(20,2) NULL,
+          rank_of_shareholding INT NULL,
+          score_model1 DECIMAL(10,6) NULL,
+          prediction_model1 TINYINT NULL,
+          Target_encoded INT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uniq_outreach_triplet (account_hash_key, proposal_master_skey, director_master_skey),
+          INDEX idx_outreach_hash (account_hash_key),
+          INDEX idx_outreach_pm (proposal_master_skey),
+          INDEX idx_outreach_dm (director_master_skey)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `;
+      
+      await db.query(newTableSQL, []);
+      console.log('✅ Outreach table recreated with account_unvoted-compatible schema');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error initializing database:', error);
+    throw error;
+  }
 }
+
+// MySQL Management Routes
+
+// Manual MySQL restart endpoint
+app.post('/api/mysql/restart', async (req, res) => {
+  try {
+    console.log('🔄 Manual MySQL restart requested');
+    const success = await restartMySQLService();
+    
+    if (success) {
+      res.json({ 
+        success: true, 
+        message: 'MySQL service restarted successfully',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to restart MySQL service',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// MySQL health check endpoint
+app.get('/api/mysql/health', async (req, res) => {
+  try {
+    await testMySQLConnection();
+    res.json({ 
+      healthy: true, 
+      message: 'MySQL connection is healthy',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      healthy: false, 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// MySQL status endpoint
+app.get('/api/mysql/status', async (req, res) => {
+  try {
+    const statusResults = await db.query('SHOW STATUS WHERE Variable_name IN (?, ?, ?, ?, ?)', [
+      'Uptime', 'Connections', 'Threads_connected', 'Questions', 'Slow_queries'
+    ]);
+    
+    const processResults = await db.query('SHOW PROCESSLIST', []);
+    
+    const status = {};
+    statusResults.forEach(row => {
+      status[row.Variable_name] = row.Value;
+    });
+    
+    res.json({
+      status: status,
+      activeConnections: processResults.length,
+      processlist: processResults,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Routes
 

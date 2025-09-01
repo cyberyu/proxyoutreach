@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Import Proposals Predictions - Bulk CSV Ingestion
-Script to ingest multiple prediction CSV files into respective databases:
+Import Proposals Predictions - Comprehensive Bulk CSV Ingestion
+Script to ingest ALL fields from multiple prediction CSV files into respective databases:
 - 2025_Nov_to_July_Predictions_OriginalModel_SDS.csv → proxy_sds.proposals_predictions
 - 2025_Nov_to_July_Predictions_CalibratedModel_SDS.csv → proxy_sds_calibrated.proposals_predictions  
 - 2025_Nov_to_July_Predictions_OriginalModel_666.csv → proxy_sel.proposals_predictions
 - 2025_Nov_to_July_Predictions_CalibratedModel_666.csv → proxy_sel_calibrated.proposals_predictions
 
-This script drops existing proposals_predictions tables and recreates them with identical structure to proxy database.
-Ignores the last 'merge_**' column from CSV files.
+This script drops existing proposals_predictions tables and recreates them with comprehensive structure.
+Imports ALL CSV fields except the last 'merged_proposal' column.
 """
 
 import mysql.connector
@@ -33,23 +33,13 @@ CSV_DATABASE_MAPPING = {
     'docker/2025_Nov_to_July_Predictions_CalibratedModel_666.csv': 'proxy_sel_calibrated'
 }
 
-def parse_numeric(value, decimal_places=4):
-    """Parse a numeric value from CSV with proper error handling"""
-    if not value or value.strip() == '' or value.strip().lower() == 'null':
+def safe_float(value):
+    """Safely convert to float"""
+    if not value or value.strip() == '':
         return None
-    
     try:
-        # Remove any commas and strip whitespace
-        cleaned_value = str(value).replace(',', '').strip()
-        
-        # Convert to Decimal for precision
-        decimal_value = Decimal(cleaned_value)
-        
-        # Round to specified decimal places
-        return round(float(decimal_value), decimal_places)
-    
-    except (ValueError, InvalidOperation, TypeError):
-        print(f"⚠️ Warning: Could not parse numeric value '{value}', setting to None")
+        return float(value)
+    except (ValueError, TypeError):
         return None
 
 def safe_int(value):
@@ -110,7 +100,7 @@ def create_database_connection(database_name):
         return None
 
 def drop_and_create_proposals_predictions_table(database_name):
-    """Drop existing proposals_predictions table and recreate with proxy database structure"""
+    """Drop existing proposals_predictions table and recreate with comprehensive structure"""
     connection = create_database_connection(database_name)
     if not connection:
         return False
@@ -195,6 +185,61 @@ def drop_and_create_proposals_predictions_table(database_name):
             connection.close()
         return False
 
+def process_row_data(row):
+    """Process a CSV row into database-ready format"""
+    # Handle different CSV formats (quoted vs unquoted)
+    data = {
+        'proposal_master_skey': safe_int(row.get('proposal_master_skey')),
+        'director_master_skey': safe_int(row.get('director_master_skey')),
+        'final_key': row.get('final_key') or None,
+        'job_number': row.get('job_number') or None,
+        'issuer_name': row.get('issuer_name') or None,
+        'service': row.get('service') or None,
+        'cusip6': row.get('cusip6') or None,
+        'mt_date': parse_date(row.get('mt_date')),
+        'ml_date': parse_date(row.get('ml_date')),
+        'record_date': parse_date(row.get('record_date')),
+        'mgmt_rec': row.get('mgmt_rec') or None,
+        'proposal': row.get('proposal') or None,
+        'proposal_type': row.get('proposal_type') or None,
+        'director_number': safe_int(row.get('director_number')),
+        'director_name': row.get('director_name') if row.get('director_name') not in ['', '-1'] else None,
+        'category': row.get('Category') or None,  # Note: CSV uses 'Category' not 'category'
+        'subcategory': row.get('Subcategory') or None,
+        'predicted_for_shares': safe_int(row.get('predicted_for_shares')),
+        'predicted_against_shares': safe_int(row.get('predicted_against_shares')),
+        'predicted_abstain_shares': safe_int(row.get('predicted_abstain_shares')),
+        'predicted_unvoted_shares': safe_int(row.get('predicted_unvoted_shares')),
+        'total_for_shares': safe_int(row.get('total_for_shares')),
+        'total_against_shares': safe_int(row.get('total_against_shares')),
+        'total_abstain_shares': safe_int(row.get('total_abstain_shares')),
+        'total_unvoted_shares': safe_int(row.get('total_unvoted_shares')),
+        'for_ratio_among_voted': safe_float(row.get('ForRatioAmongVoted')),
+        'for_ratio_among_elig': safe_float(row.get('ForRatioAmongElig')),
+        'voting_ratio': safe_float(row.get('VotingRatio')),
+        'for_ratio_among_voted_true': safe_float(row.get('ForRatioAmongVoted_true')),
+        'for_ratio_among_elig_true': safe_float(row.get('ForRatioAmongElig_true')),
+        'voting_ratio_true': safe_float(row.get('VotingRatio_true')),
+        'for_ratio_among_voted_incl_abs': safe_float(row.get('ForRatioAmongVotedInclAbs')),
+        'for_ratio_among_elig_incl_abs': safe_float(row.get('ForRatioAmongEligInclAbs')),
+        'voting_ratio_incl_abs': safe_float(row.get('VotingRatioInclAbs')),
+        'for_ratio_among_voted_incl_abs_true': safe_float(row.get('ForRatioAmongVotedInclAbs_true')),
+        'for_ratio_among_elig_incl_abs_true': safe_float(row.get('ForRatioAmongEligInclAbs_true')),
+        'voting_ratio_incl_abs_true': safe_float(row.get('VotingRatioInclAbs_true')),
+        'for_percentage': safe_float(row.get('For %')),
+        'against_percentage': safe_float(row.get('Against %')),
+        'abstain_percentage': safe_float(row.get('Abstain %')),
+        'for_percentage_true': safe_float(row.get('For % True')),
+        'against_percentage_true': safe_float(row.get('Against % True')),
+        'abstain_percentage_true': safe_float(row.get('Abstain % True')),
+        'prediction_correct': safe_bool(row.get('prediction_correct')),
+        'approved': safe_bool(row.get('approved')),
+        'for_prospectus_2026': safe_float(row.get('For (%) - From Prospectus 2026 File')),
+        'against_prospectus_2026': row.get('Against (%) - From Prospectus 2026 File') or None,
+        'abstain_prospectus_2026': row.get('Abstain/Withhold (%) - From Prospectus 2026 File') or None,
+    }
+    return data
+
 def import_csv_to_database(csv_file_path, database_name):
     """Import CSV data into proposals_predictions table"""
     if not os.path.exists(csv_file_path):
@@ -220,8 +265,8 @@ def import_csv_to_database(csv_file_path, database_name):
             filtered_columns = [col for col in original_columns if not col.lower().startswith('merge_')]
             print(f"📋 Filtered columns (excluding merge_* columns): {filtered_columns}")
             
-            # Prepare insert query with all fields
-            insert_query = """
+            # Insert SQL with all columns
+            insert_sql = """
             INSERT INTO proposals_predictions (
                 proposal_master_skey, director_master_skey, final_key, job_number,
                 issuer_name, service, cusip6, mt_date, ml_date, record_date,
@@ -239,11 +284,21 @@ def import_csv_to_database(csv_file_path, database_name):
                 prediction_correct, approved, for_prospectus_2026,
                 against_prospectus_2026, abstain_prospectus_2026
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s
+                %(proposal_master_skey)s, %(director_master_skey)s, %(final_key)s, %(job_number)s,
+                %(issuer_name)s, %(service)s, %(cusip6)s, %(mt_date)s, %(ml_date)s, %(record_date)s,
+                %(mgmt_rec)s, %(proposal)s, %(proposal_type)s, %(director_number)s, %(director_name)s,
+                %(category)s, %(subcategory)s, %(predicted_for_shares)s, %(predicted_against_shares)s,
+                %(predicted_abstain_shares)s, %(predicted_unvoted_shares)s, %(total_for_shares)s,
+                %(total_against_shares)s, %(total_abstain_shares)s, %(total_unvoted_shares)s,
+                %(for_ratio_among_voted)s, %(for_ratio_among_elig)s, %(voting_ratio)s,
+                %(for_ratio_among_voted_true)s, %(for_ratio_among_elig_true)s, %(voting_ratio_true)s,
+                %(for_ratio_among_voted_incl_abs)s, %(for_ratio_among_elig_incl_abs)s,
+                %(voting_ratio_incl_abs)s, %(for_ratio_among_voted_incl_abs_true)s,
+                %(for_ratio_among_elig_incl_abs_true)s, %(voting_ratio_incl_abs_true)s,
+                %(for_percentage)s, %(against_percentage)s, %(abstain_percentage)s,
+                %(for_percentage_true)s, %(against_percentage_true)s, %(abstain_percentage_true)s,
+                %(prediction_correct)s, %(approved)s, %(for_prospectus_2026)s,
+                %(against_prospectus_2026)s, %(abstain_prospectus_2026)s
             )
             """
             
@@ -254,90 +309,12 @@ def import_csv_to_database(csv_file_path, database_name):
             
             for row_num, row in enumerate(reader, start=2):  # Start at 2 because header is row 1
                 try:
-                    # Extract and clean data - mapping ALL CSV fields except merged_proposal
-                    proposal_master_skey = safe_int(row.get('proposal_master_skey'))
-                    director_master_skey = safe_int(row.get('director_master_skey'))
-                    final_key = row.get('final_key') or None
-                    job_number = row.get('job_number') or None
-                    issuer_name = row.get('issuer_name') or None
-                    service = row.get('service') or None
-                    cusip6 = row.get('cusip6') or None
-                    mt_date = parse_date(row.get('mt_date'))
-                    ml_date = parse_date(row.get('ml_date'))
-                    record_date = parse_date(row.get('record_date'))
-                    mgmt_rec = row.get('mgmt_rec') or None
-                    proposal = row.get('proposal') or None
-                    proposal_type = row.get('proposal_type') or None
-                    director_number = safe_int(row.get('director_number'))
-                    director_name = row.get('director_name') if row.get('director_name') not in ['', '-1'] else None
-                    category = row.get('Category') or None  # Note: CSV uses 'Category' not 'category'
-                    subcategory = row.get('Subcategory') or None
-                    
-                    # Share fields - convert to integers for BIGINT columns
-                    predicted_for_shares = safe_int(row.get('predicted_for_shares'))
-                    predicted_against_shares = safe_int(row.get('predicted_against_shares'))
-                    predicted_abstain_shares = safe_int(row.get('predicted_abstain_shares'))
-                    predicted_unvoted_shares = safe_int(row.get('predicted_unvoted_shares'))
-                    total_for_shares = safe_int(row.get('total_for_shares'))
-                    total_against_shares = safe_int(row.get('total_against_shares'))
-                    total_abstain_shares = safe_int(row.get('total_abstain_shares'))
-                    total_unvoted_shares = safe_int(row.get('total_unvoted_shares'))
-                    
-                    # Ratio fields
-                    for_ratio_among_voted = parse_numeric(row.get('ForRatioAmongVoted'), 4)
-                    for_ratio_among_elig = parse_numeric(row.get('ForRatioAmongElig'), 4)
-                    voting_ratio = parse_numeric(row.get('VotingRatio'), 4)
-                    for_ratio_among_voted_true = parse_numeric(row.get('ForRatioAmongVoted_true'), 4)
-                    for_ratio_among_elig_true = parse_numeric(row.get('ForRatioAmongElig_true'), 4)
-                    voting_ratio_true = parse_numeric(row.get('VotingRatio_true'), 4)
-                    for_ratio_among_voted_incl_abs = parse_numeric(row.get('ForRatioAmongVotedInclAbs'), 4)
-                    for_ratio_among_elig_incl_abs = parse_numeric(row.get('ForRatioAmongEligInclAbs'), 4)
-                    voting_ratio_incl_abs = parse_numeric(row.get('VotingRatioInclAbs'), 4)
-                    for_ratio_among_voted_incl_abs_true = parse_numeric(row.get('ForRatioAmongVotedInclAbs_true'), 4)
-                    for_ratio_among_elig_incl_abs_true = parse_numeric(row.get('ForRatioAmongEligInclAbs_true'), 4)
-                    voting_ratio_incl_abs_true = parse_numeric(row.get('VotingRatioInclAbs_true'), 4)
-                    
-                    # Percentage fields
-                    for_percentage = parse_numeric(row.get('For %'), 4)
-                    against_percentage = parse_numeric(row.get('Against %'), 4)
-                    abstain_percentage = parse_numeric(row.get('Abstain %'), 4)
-                    for_percentage_true = parse_numeric(row.get('For % True'), 4)
-                    against_percentage_true = parse_numeric(row.get('Against % True'), 4)
-                    abstain_percentage_true = parse_numeric(row.get('Abstain % True'), 4)
-                    
-                    # Boolean fields
-                    prediction_correct = safe_bool(row.get('prediction_correct'))
-                    approved = safe_bool(row.get('approved'))
-                    
-                    # Prospectus fields
-                    for_prospectus_2026 = parse_numeric(row.get('For (%) - From Prospectus 2026 File'), 4)
-                    against_prospectus_2026 = row.get('Against (%) - From Prospectus 2026 File') or None
-                    abstain_prospectus_2026 = row.get('Abstain/Withhold (%) - From Prospectus 2026 File') or None
-                    
-                    # Prepare row data with ALL fields
-                    row_data = (
-                        proposal_master_skey, director_master_skey, final_key, job_number,
-                        issuer_name, service, cusip6, mt_date, ml_date, record_date,
-                        mgmt_rec, proposal, proposal_type, director_number, director_name,
-                        category, subcategory, predicted_for_shares, predicted_against_shares,
-                        predicted_abstain_shares, predicted_unvoted_shares, total_for_shares,
-                        total_against_shares, total_abstain_shares, total_unvoted_shares,
-                        for_ratio_among_voted, for_ratio_among_elig, voting_ratio,
-                        for_ratio_among_voted_true, for_ratio_among_elig_true, voting_ratio_true,
-                        for_ratio_among_voted_incl_abs, for_ratio_among_elig_incl_abs,
-                        voting_ratio_incl_abs, for_ratio_among_voted_incl_abs_true,
-                        for_ratio_among_elig_incl_abs_true, voting_ratio_incl_abs_true,
-                        for_percentage, against_percentage, abstain_percentage,
-                        for_percentage_true, against_percentage_true, abstain_percentage_true,
-                        prediction_correct, approved, for_prospectus_2026,
-                        against_prospectus_2026, abstain_prospectus_2026
-                    )
-                    
-                    batch_data.append(row_data)
+                    data = process_row_data(row)
+                    batch_data.append(data)
                     
                     # Execute batch insert
                     if len(batch_data) >= batch_size:
-                        cursor.executemany(insert_query, batch_data)
+                        cursor.executemany(insert_sql, batch_data)
                         connection.commit()
                         success_count += len(batch_data)
                         print(f"✅ Inserted batch of {len(batch_data)} rows (Total: {success_count})")
@@ -352,7 +329,7 @@ def import_csv_to_database(csv_file_path, database_name):
             
             # Insert remaining batch
             if batch_data:
-                cursor.executemany(insert_query, batch_data)
+                cursor.executemany(insert_sql, batch_data)
                 connection.commit()
                 success_count += len(batch_data)
                 print(f"✅ Inserted final batch of {len(batch_data)} rows")
@@ -378,7 +355,7 @@ def import_csv_to_database(csv_file_path, database_name):
 
 def main():
     """Main function to process all CSV files"""
-    print("🚀 Starting bulk proposals_predictions import...")
+    print("🚀 Starting comprehensive bulk proposals_predictions import...")
     print(f"⏰ Start time: {datetime.now()}")
     print("=" * 80)
     
@@ -408,12 +385,12 @@ def main():
             print(f"❌ Failed to import {csv_filename} → {database_name}")
     
     print("\n" + "=" * 80)
-    print(f"🎯 Bulk Import Complete!")
+    print(f"🎯 Comprehensive Bulk Import Complete!")
     print(f"⏰ End time: {datetime.now()}")
     print(f"📊 Summary: {success_count}/{total_files} files imported successfully")
     
     if success_count == total_files:
-        print("🎉 All files imported successfully!")
+        print("🎉 All files imported successfully with ALL CSV fields!")
         return 0
     else:
         print(f"⚠️ {total_files - success_count} files failed to import")

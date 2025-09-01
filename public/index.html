@@ -81,6 +81,11 @@
                             <i class="fas fa-cog me-1"></i>Admin
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="mysql_admin.html" target="_blank">
+                            <i class="fas fa-database me-1"></i>MySQL Admin
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -253,6 +258,30 @@
                     </small>
                 </div>
                 <div class="card-body">
+                    <!-- Filters Section -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label" style="font-size: 0.85rem;"><strong>Delta1 Filter:</strong></label>
+                            <select class="form-select form-select-sm" id="delta1Filter" onchange="applyProposalFilters()">
+                                <option value="">Any Value</option>
+                                <option value="0.15">≤ 15%</option>
+                                <option value="0.30">≤ 30%</option>
+                                <option value="0.50">≤ 50%</option>
+                                <option value="0.75">≤ 75%</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" style="font-size: 0.85rem;"><strong>Delta2 Filter:</strong></label>
+                            <select class="form-select form-select-sm" id="delta2Filter" onchange="applyProposalFilters()">
+                                <option value="">Any Value</option>
+                                <option value="0.15">≤ 15%</option>
+                                <option value="0.30">≤ 30%</option>
+                                <option value="0.50">≤ 50%</option>
+                                <option value="0.75">≤ 75%</option>
+                            </select>
+                        </div>
+                    </div>
+                    
                     <div class="table-responsive">
                         <table class="table table-striped table-hover table-ultra-dense" id="proposalsTable">
                             <thead class="table-dark">
@@ -272,7 +301,7 @@
                                     <th scope="col" style="width: 70px; cursor: pointer;" title="Whether the prediction was correct or incorrect" onclick="toggleProposalSort('prediction_correct')">Prediction <i id="proposals_sort_prediction_correct" class="fas fa-sort text-muted" style="font-size: 11px;"></i></th>
                                     <th scope="col" style="width: 60px;" title="Whether the proposal was approved by shareholders">Approved</th>
                                     <th scope="col" style="width: 55px;" title="Percentage of votes in favor">For %</th>
-                                    <th scope="col" style="width: 55px;" title="Percentage of votes against">Against %</th>
+                                    <th scope="col" style="width: 70px;" title="True percentage of votes in favor">True For %</th>
                                     <!-- Share summary columns -->
                                     <th scope="col" title="Predicted For Shares">Pred For</th>
                                     <th scope="col" title="Predicted Against Shares">Pred Against</th>
@@ -282,6 +311,8 @@
                                     <th scope="col" title="True Against Shares">True Against</th>
                                     <th scope="col" title="True Abstain Shares">True Abstain</th>
                                     <th scope="col" title="True Unvoted Shares">True Unvoted</th>
+                                    <th scope="col" title="Delta1: |Predicted For Shares - True For Shares| / (True For Shares + 1 if zero)">Delta1</th>
+                                    <th scope="col" title="Delta2: |Pred For Ratio - True For Ratio| with denominator + 1 if zero">Delta2</th>
                                     <th scope="col" style="width: 80px; cursor: pointer; background-color: rgba(13, 202, 240, 0.1);" title="Click to view confusion matrix for all proposals" onclick="showProposalConfusion()">
                                         <i class="fas fa-chart-bar text-info"></i> Accuracy Rate
                                     </th>

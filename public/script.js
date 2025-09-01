@@ -438,9 +438,91 @@ async function loadDashboardData() {
 
 // Proposals functions
 let proposals = [];
+let allProposalsData = []; // Store original unfiltered data
 let currentProposalsPage = 1;
 let totalProposalsPages = 1;
 let proposalsSortState = { field: null, dir: 'asc' };
+let proposalFilters = { delta1: '', delta2: '' }; // Track current filter values
+let currentSelectedDatabase = 'proxy'; // Track current database selection
+
+// Helper functions to calculate Delta1 and Delta2 with denominator + 1 if zero
+function calculateDelta1(proposal) {
+    // Delta1 = |Predicted For Shares - True For Shares| / (True For Shares + 1 if zero)
+    const pred = Number(proposal.predicted_for_shares);
+    const truth = Number(proposal.total_for_shares);
+    
+    if (!isFinite(pred) || !isFinite(truth)) return null;
+    
+    const denominator = truth === 0 ? 1 : Math.abs(truth);
+    return Math.abs(pred - truth) / denominator;
+}
+
+function calculateDelta2(proposal) {
+    // Delta2 = |(Pred For Shares / (Pred For + Pred Against + Pred Abstain)) - (True For Shares / (True For + True Against + True Abstain))|
+    // Add 1 to denominators if they are zero
+    const predFor = Number(proposal.predicted_for_shares);
+    const predAgainst = Number(proposal.predicted_against_shares);
+    const predAbstain = Number(proposal.predicted_abstain_shares);
+    const trueFor = Number(proposal.total_for_shares);
+    const trueAgainst = Number(proposal.total_against_shares);
+    const trueAbstain = Number(proposal.total_abstain_shares);
+    
+    if (!isFinite(predFor) || !isFinite(predAgainst) || !isFinite(predAbstain) ||
+        !isFinite(trueFor) || !isFinite(trueAgainst) || !isFinite(trueAbstain)) {
+        return null;
+    }
+    
+    const predDenom = predFor + predAgainst + predAbstain;
+    const trueDenom = trueFor + trueAgainst + trueAbstain;
+    
+    // Add 1 to denominators if they are zero
+    const adjPredDenom = predDenom === 0 ? 1 : predDenom;
+    const adjTrueDenom = trueDenom === 0 ? 1 : trueDenom;
+    
+    return Math.abs((predFor / adjPredDenom) - (trueFor / adjTrueDenom));
+}
+
+// Get database description based on current selection
+function getDatabaseDescription(database) {
+    switch(database) {
+        case 'proxy':
+            return 'Selected 279 Proposals by Original Model';
+        case 'proxy_sds':
+            return 'SDS Issuers\' Proposals by Original Model';
+        case 'proxy_sds_calibrated':
+            return 'SDS Issuers\' Proposals by Calibrated Model';
+        case 'proxy_sel':
+            return 'Selected Proposals by Original Model';
+        case 'proxy_sel_calibrated':
+            return 'Selected Proposals by Calibrated Model';
+        default:
+            return 'Proposals Predictions Data';
+    }
+}
+
+// Update the proposals section header with current database info
+function updateProposalsHeader() {
+    const headerElement = document.querySelector('#proposals-section h2');
+    if (headerElement) {
+        const description = getDatabaseDescription(currentSelectedDatabase);
+        headerElement.innerHTML = `<i class="fas fa-file-contract me-2"></i>Predicted Proposals - ${description}`;
+    }
+}
+
+// Get current database info from server
+async function getCurrentDatabaseInfo() {
+    try {
+        const response = await fetchWithCredentials('/api/admin/manage-database');
+        const data = await response.json();
+        if (data.currentDatabase) {
+            currentSelectedDatabase = data.currentDatabase;
+            updateProposalsHeader();
+        }
+    } catch (error) {
+        console.log('Could not fetch database info, using default');
+        updateProposalsHeader(); // Still update with default value
+    }
+}
 
 function showProposalsSection() {
     console.log('showProposalsSection called');
@@ -456,6 +538,9 @@ function showProposalsSection() {
     if (proposalsSection) {
         proposalsSection.style.display = 'block';
         console.log('proposals-section displayed');
+        
+        // Get current database info and update header
+        getCurrentDatabaseInfo();
         
         // Load proposals data if function exists
         if (typeof loadProposalsTable === 'function') {
@@ -512,11 +597,10 @@ async function loadProposalsTable() {
         
         console.log('Proposals response:', data);
         
-        proposals = data.proposals;
-        totalProposalsPages = data.pagination.total_pages;
+        allProposalsData = data.proposals; // Store original data
         
-        // Apply current sorting if any
-        applySortingToProposals();
+        // Apply current filters and sorting
+        applyProposalFilters();
         
         renderProposalsTable();
         renderProposalsPagination(data.pagination);
@@ -527,6 +611,51 @@ async function loadProposalsTable() {
         console.error('Error loading proposals table:', error);
         showAlert('Error loading proposals table', 'danger');
     }
+}
+
+function applyProposalFilters() {
+    console.log('Applying proposal filters:', proposalFilters);
+    
+    // Get current filter values from the UI
+    const delta1FilterElement = document.getElementById('delta1Filter');
+    const delta2FilterElement = document.getElementById('delta2Filter');
+    
+    if (delta1FilterElement) proposalFilters.delta1 = delta1FilterElement.value;
+    if (delta2FilterElement) proposalFilters.delta2 = delta2FilterElement.value;
+    
+    // Start with all original data
+    let filteredProposals = [...allProposalsData];
+    
+    // Apply Delta1 filter if selected
+    if (proposalFilters.delta1) {
+        const threshold = parseFloat(proposalFilters.delta1);
+        filteredProposals = filteredProposals.filter(proposal => {
+            const delta1 = calculateDelta1(proposal);
+            return delta1 !== null && delta1 <= threshold;
+        });
+    }
+    
+    // Apply Delta2 filter if selected (combined with Delta1 if both are active)
+    if (proposalFilters.delta2) {
+        const threshold = parseFloat(proposalFilters.delta2);
+        filteredProposals = filteredProposals.filter(proposal => {
+            const delta2 = calculateDelta2(proposal);
+            return delta2 !== null && delta2 <= threshold;
+        });
+    }
+    
+    // Update the proposals array with filtered data
+    proposals = filteredProposals;
+    
+    // Apply current sorting if any
+    applySortingToProposals();
+    
+    // Update table display
+    if (typeof renderProposalsTable === 'function') {
+        renderProposalsTable();
+    }
+    
+    console.log(`Filtered ${allProposalsData.length} proposals down to ${proposals.length}`);
 }
 
 function renderProposalsTable() {
@@ -556,7 +685,7 @@ function renderProposalsTable() {
     });
     
     if (proposals.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="19" class="text-center">No proposals found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="21" class="text-center">No proposals found</td></tr>';
         return;
     }
     
@@ -571,7 +700,7 @@ function renderProposalsTable() {
         { key: 'prediction_correct', label: 'Prediction Accuracy' },
         { key: 'approved', label: 'Approved Status' },
         { key: 'for_percentage', label: 'For Percentage' },
-        { key: 'against_percentage', label: 'Against Percentage' },
+        { key: 'for_percentage_true', label: 'True For Percentage' },
         // Added share summary fields to appear in main view before detailed view
         { key: 'predicted_for_shares', label: 'Predicted For Shares' },
         { key: 'predicted_against_shares', label: 'Predicted Against Shares' },
@@ -580,7 +709,9 @@ function renderProposalsTable() {
         { key: 'total_for_shares', label: 'True For' },
         { key: 'total_against_shares', label: 'True Against' },
         { key: 'total_abstain_shares', label: 'True Abstain' },
-        { key: 'total_unvoted_shares', label: 'True Unvoted' }
+        { key: 'total_unvoted_shares', label: 'True Unvoted' },
+        { key: 'delta1', label: 'Delta1' },
+        { key: 'delta2', label: 'Delta2' }
     ];
 
     // Helper function to truncate text to first N words
@@ -636,11 +767,17 @@ function renderProposalsTable() {
                         return `<td><span class="badge ${proposal.prediction_correct ? 'bg-success' : 'bg-danger'}">${proposal.prediction_correct ? 'Correct' : 'Incorrect'}</span></td>`;
                     } else if (field.key === 'approved') {
                         return `<td><span class="badge ${proposal.approved ? 'bg-success' : 'bg-secondary'}">${proposal.approved ? 'Yes' : 'No'}</span></td>`;
-                    } else if (field.key === 'for_percentage' || field.key === 'against_percentage') {
+                    } else if (field.key === 'for_percentage' || field.key === 'for_percentage_true') {
                         const val = proposal[field.key];
                         return `<td>${val !== undefined && val !== null ? (parseFloat(val) * 100).toFixed(2) + '%' : '-'}</td>`;
                     } else if (['predicted_for_shares','predicted_against_shares','predicted_abstain_shares','predicted_unvoted_shares','total_for_shares','total_against_shares','total_abstain_shares','total_unvoted_shares'].includes(field.key)) {
                         return `<td>${formatShares(proposal[field.key])}</td>`;
+                    } else if (field.key === 'delta1') {
+                        const delta1 = calculateDelta1(proposal);
+                        return `<td>${delta1 !== null ? (delta1 * 100).toFixed(2) + '%' : '-'}</td>`;
+                    } else if (field.key === 'delta2') {
+                        const delta2 = calculateDelta2(proposal);
+                        return `<td>${delta2 !== null ? (delta2 * 100).toFixed(2) + '%' : '-'}</td>`;
                     } else if (field.key === 'issuer_name') {
                         return `<td class="text-truncate" style="max-width: 150px;" title="${(proposal.issuer_name || '').replace(/\"/g, '&quot;')}">${proposal.issuer_name || '-'}</td>`;
                     } else {
@@ -676,7 +813,7 @@ function renderProposalsTable() {
         console.log('Proposals table rendered successfully');
     } catch (error) {
         console.error('Error rendering proposals table:', error);
-        tbody.innerHTML = '<tr><td colspan="20" class="text-center text-danger">Error rendering table</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="21" class="text-center text-danger">Error rendering table</td></tr>';
     }
 }
 
@@ -797,7 +934,7 @@ function viewProposalDetails(id) {
     // Define fields shown in main table for highlighting
     const mainTableFields = [
         'id', 'proposal_master_skey', 'director_master_skey', 'issuer_name', 'category',
-        'proposal', 'prediction_correct', 'approved', 'for_percentage', 'against_percentage',
+        'proposal', 'prediction_correct', 'approved', 'for_percentage', 'for_percentage_true',
         'predicted_for_shares', 'predicted_against_shares', 'predicted_abstain_shares', 'predicted_unvoted_shares',
         'total_for_shares', 'total_against_shares', 'total_abstain_shares', 'total_unvoted_shares'
     ];
@@ -805,7 +942,7 @@ function viewProposalDetails(id) {
     // Recursively render all fields, including nested objects/arrays
     // Show all fields from the data table, in the correct order, even if missing from the object
     function renderValue(val, key) {
-        if (key === 'for_percentage' || key === 'against_percentage' || key === 'abstain_percentage') {
+        if (key === 'for_percentage' || key === 'for_percentage_true' || key === 'abstain_percentage') {
             return (val !== undefined && val !== null && val !== '') ? (parseFloat(val) * 100).toFixed(2) + '%' : 'N/A';
         } else if (typeof val === 'boolean' || val === 0 || val === 1) {
             if (key === 'approved' || key === 'prediction_correct') {
@@ -2236,6 +2373,17 @@ async function setTargetDatabase() {
                 currentInfo.textContent = `Current: ${result.currentDatabase}`;
             }
             
+            // Update global database variable and proposals header
+            currentSelectedDatabase = result.currentDatabase;
+            const proposalsSection = document.getElementById('proposals-section');
+            if (proposalsSection && proposalsSection.style.display !== 'none') {
+                updateProposalsHeader();
+                // Reload proposals data for the new database
+                if (typeof loadProposalsTable === 'function') {
+                    loadProposalsTable();
+                }
+            }
+            
             // Refresh database management if it's currently displayed
             const resultDiv = document.getElementById('databaseManagementResult');
             if (resultDiv && resultDiv.innerHTML.includes('Database Management Overview')) {
@@ -3498,7 +3646,7 @@ function renderConfusionMatrix(data) {
                 <div class="mb-2"><b>Formula:</b><br><code>Delta1 = |Pred For Shares - True For Shares| / True For Shares</code></div>
                 <div class="mb-2 text-muted">Measures the relative error between predicted and true For Shares. 0 is perfect.</div>`;
     if (isSingleProposal && delta1Arr && delta1Arr.length === 1) {
-        delta1Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta1Arr[0] !== undefined ? delta1Arr[0].toFixed(4) : 'N/A'}</span></div>`;
+        delta1Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta1Arr[0] !== undefined ? (delta1Arr[0] * 100).toFixed(2) + '%' : 'N/A'}</span></div>`;
     } else if (delta1Arr && delta1Arr.length > 1) {
         delta1Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta1Histogram" height="240"></canvas></div>`;
     } else {
@@ -3527,7 +3675,7 @@ function renderConfusionMatrix(data) {
                 <div class="mb-2"><b>Formula:</b><br><code>Delta2 = |(Pred For Shares / (Pred For + Pred Against + Pred Abstain)) - (True For Shares / (True For + True Against + True Abstain))|</code></div>
                 <div class="mb-2 text-muted">Measures the error in predicted vs. true For voting ratio. 0 is perfect.</div>`;
     if (isSingleProposal && delta2Arr && delta2Arr.length === 1) {
-        delta2Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta2Arr[0] !== undefined ? delta2Arr[0].toFixed(4) : 'N/A'}</span></div>`;
+        delta2Col += `<div class="mb-2"><b>Value:</b> <span class="fs-4 text-primary">${delta2Arr[0] !== undefined ? (delta2Arr[0] * 100).toFixed(2) + '%' : 'N/A'}</span></div>`;
     } else if (delta2Arr && delta2Arr.length > 1) {
         delta2Col += `<div class="mb-2"><b>Histogram:</b><canvas id="delta2Histogram" height="240"></canvas></div>`;
     } else {
