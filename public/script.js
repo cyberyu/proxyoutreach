@@ -2336,6 +2336,48 @@ function updateDatabaseSelector(databases, currentDatabase) {
     currentInfo.textContent = `Current: ${currentDatabase}`;
 }
 
+// Reset all filters to prevent deadlocks when switching databases
+function resetAllFilters() {
+    try {
+        // Reset proposal filters
+        const delta1Filter = document.getElementById('delta1Filter');
+        const delta2Filter = document.getElementById('delta2Filter');
+        
+        if (delta1Filter) {
+            delta1Filter.value = 'all';
+        }
+        if (delta2Filter) {
+            delta2Filter.value = 'all';
+        }
+        
+        // Reset account filters
+        const votingStatusFilter = document.getElementById('votingStatusFilter');
+        const outreachStatusFilter = document.getElementById('outreachStatusFilter');
+        
+        if (votingStatusFilter) {
+            votingStatusFilter.value = 'all';
+        }
+        if (outreachStatusFilter) {
+            outreachStatusFilter.value = 'all';
+        }
+        
+        // Clear any confusion matrix filters if they exist
+        const confusionFilters = document.querySelectorAll('[id*="confusion"][id*="Filter"]');
+        confusionFilters.forEach(filter => {
+            if (filter.tagName === 'SELECT') {
+                filter.value = filter.querySelector('option[value="all"]') ? 'all' : '';
+            } else if (filter.tagName === 'INPUT') {
+                filter.value = '';
+                filter.checked = false;
+            }
+        });
+        
+        console.log('All filters reset to default values');
+    } catch (error) {
+        console.error('Error resetting filters:', error);
+    }
+}
+
 // Set target database
 async function setTargetDatabase() {
     if (!isAdminAuthenticated) {
@@ -2366,6 +2408,9 @@ async function setTargetDatabase() {
         
         if (result.success) {
             showAlert(`Database switched to ${result.currentDatabase}`, 'success');
+            
+            // Reset all filters to prevent deadlocks with previous database filter states
+            resetAllFilters();
             
             // Update current database info
             const currentInfo = document.getElementById('currentDatabaseInfo');

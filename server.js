@@ -15,7 +15,7 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Session configuration for issuer filtering
 app.use(session({
@@ -49,25 +49,14 @@ const upload = multer({ storage: storage });
 // Current database tracking
 let currentDatabase = 'proxy';
 
-// MySQL connection configuration with reconnection settings
+// MySQL connection configuration with valid mysql2 options
 const dbConfig = {
   host: 'localhost',
   user: 'webapp',
   password: 'webapppass',
   database: 'proxy',
-  acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true,
-  pool: {
-    min: 0,
-    max: 10,
-    acquireTimeoutMillis: 30000,
-    createTimeoutMillis: 30000,
-    destroyTimeoutMillis: 5000,
-    idleTimeoutMillis: 300000,
-    reapIntervalMillis: 1000,
-    createRetryIntervalMillis: 200
-  }
+  connectionLimit: 10,
+  queueLimit: 0
 };
 
 // Create connection pool instead of single connection for better stability
@@ -75,144 +64,48 @@ let pool = mysql.createPool(dbConfig);
 
 // MySQL connection wrapper with automatic reconnection
 let db = {
-  query: (sql, params) => {
-    return new Promise((resolve, reject) => {
-      pool.execute(sql, params, (err, results) => {
-        if (err) {
-          console.error('Database query error:', err);
-          // If connection error, try to restart MySQL and reconnect
-          if (err.code === 'PROTOCOL_CONNECTION_LOST' || 
-              err.code === 'ECONNRESET' || 
-              err.code === 'ECONNREFUSED') {
-            console.log('🔄 Connection lost, attempting MySQL restart...');
-            restartMySQLService();
+  query: (sql, params, callback) => {
+    // Handle different parameter patterns
+    if (typeof params === 'function') {
+      // Called as db.query(sql, callback) - callback style
+      callback = params;
+      params = [];
+    }
+    
+    if (callback) {
+      // Callback style - use pool.query (not execute)
+      pool.query(sql, params || [], callback);
+    } else {
+      // Promise style - use pool.query (not execute) 
+      return new Promise((resolve, reject) => {
+        pool.query(sql, params || [], (err, results) => {
+          if (err) {
+            console.error('Database query error:', err);
+            reject(err);
+          } else {
+            resolve(results);
           }
-          reject(err);
-        } else {
-          resolve(results);
-        }
+        });
       });
-    });
+    }
   },
   execute: (sql, params, callback) => {
     pool.execute(sql, params, callback);
+  },
+  promise: () => {
+    return pool.promise();
   }
 };
 
-// MySQL service restart functionality
-async function restartMySQLService() {
-  try {
-    console.log('🔄 Restarting MySQL service...');
-    
-    // Try different restart commands based on the system
-    const restartCommands = [
-      'sudo systemctl restart mysql',
-      'sudo service mysql restart',
-      'sudo systemctl restart mysqld',
-      'sudo service mysqld restart'
-    ];
-    
-    for (const command of restartCommands) {
-      try {
-        console.log(`Trying: ${command}`);
-        await execAsync(command);
-        console.log('✅ MySQL service restarted successfully');
-        
-        // Wait a moment for MySQL to fully start
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        // Recreate the connection pool
-        if (pool) {
-          pool.end();
-        }
-        pool = mysql.createPool(dbConfig);
-        
-        // Test the connection
-        await testMySQLConnection();
-        return true;
-        
-      } catch (err) {
-        console.log(`❌ Failed with ${command}:`, err.message);
-        continue;
-      }
-    }
-    
-    console.error('❌ All MySQL restart attempts failed');
-    return false;
-    
-  } catch (error) {
-    console.error('❌ Error restarting MySQL service:', error);
-    return false;
-  }
-}
-
-// Test MySQL connection
-async function testMySQLConnection() {
-  return new Promise((resolve, reject) => {
-    pool.execute('SELECT 1 as test', [], (err, results) => {
-      if (err) {
-        console.error('❌ MySQL connection test failed:', err);
-        reject(err);
-      } else {
-        console.log('✅ MySQL connection test passed');
-        resolve(results);
-      }
-    });
-  });
-}
-
-// Health check for MySQL service
-async function mysqlHealthCheck() {
-  try {
-    await testMySQLConnection();
-    return true;
-  } catch (error) {
-    console.log('🏥 MySQL health check failed, attempting restart...');
-    return await restartMySQLService();
-  }
-}
-
-// Periodic MySQL health check and restart (every 30 minutes)
-setInterval(async () => {
-  console.log('🏥 Running periodic MySQL health check...');
-  const isHealthy = await mysqlHealthCheck();
-  if (!isHealthy) {
-    console.error('❌ MySQL health check failed even after restart attempt');
-  }
-}, 30 * 60 * 1000); // 30 minutes
-
-// Preventive MySQL restart (every 4 hours to prevent memory leaks)
-setInterval(async () => {
-  console.log('🔄 Running preventive MySQL restart (every 4 hours)...');
-  await restartMySQLService();
-}, 4 * 60 * 60 * 1000); // 4 hours
-
-// Connect to MySQL with initial health check
+// Connect to MySQL and initialize database
 async function initializeMySQLConnection() {
   try {
-    console.log('🔌 Initializing MySQL connection...');
-    
-    // Test initial connection
-    await testMySQLConnection();
-    console.log('✅ Connected to MySQL database');
-    
-    // Create database and tables if they don't exist
+    console.log('🔌 Connecting to MySQL database...');
     await initializeDatabase();
-    
-    // Start periodic health checks
-    console.log('🏥 Started MySQL health monitoring');
-    
+    console.log('✅ Connected to MySQL database');
   } catch (error) {
     console.error('❌ Error connecting to MySQL:', error);
-    console.log('🔄 Attempting MySQL service restart...');
-    
-    const restarted = await restartMySQLService();
-    if (restarted) {
-      await initializeDatabase();
-    } else {
-      console.error('❌ Failed to establish MySQL connection after restart');
-      process.exit(1);
-    }
+    process.exit(1);
   }
 }
 
@@ -319,82 +212,6 @@ async function initializeDatabase() {
   }
 }
 
-// MySQL Management Routes
-
-// Manual MySQL restart endpoint
-app.post('/api/mysql/restart', async (req, res) => {
-  try {
-    console.log('🔄 Manual MySQL restart requested');
-    const success = await restartMySQLService();
-    
-    if (success) {
-      res.json({ 
-        success: true, 
-        message: 'MySQL service restarted successfully',
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to restart MySQL service',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// MySQL health check endpoint
-app.get('/api/mysql/health', async (req, res) => {
-  try {
-    await testMySQLConnection();
-    res.json({ 
-      healthy: true, 
-      message: 'MySQL connection is healthy',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(503).json({ 
-      healthy: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// MySQL status endpoint
-app.get('/api/mysql/status', async (req, res) => {
-  try {
-    const statusResults = await db.query('SHOW STATUS WHERE Variable_name IN (?, ?, ?, ?, ?)', [
-      'Uptime', 'Connections', 'Threads_connected', 'Questions', 'Slow_queries'
-    ]);
-    
-    const processResults = await db.query('SHOW PROCESSLIST', []);
-    
-    const status = {};
-    statusResults.forEach(row => {
-      status[row.Variable_name] = row.Value;
-    });
-    
-    res.json({
-      status: status,
-      activeConnections: processResults.length,
-      processlist: processResults,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
 // Routes
 
 // Upload and import CSV/Excel files
@@ -491,7 +308,7 @@ app.get('/api/dashboard', (req, res) => {
 });
 
 // Get proposals predictions
-app.get('/api/proposals', (req, res) => {
+app.get('/api/proposals', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 50;
   const offset = (page - 1) * limit;
@@ -536,16 +353,12 @@ app.get('/api/proposals', (req, res) => {
   // Get total count
   const countQuery = `SELECT COUNT(*) as total FROM proposals_predictions ${whereClause}`;
   
-  db.query(countQuery, params, (err, countResult) => {
-    if (err) {
-      console.error('Error counting proposals:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-    
+  try {
+    const countResult = await db.query(countQuery, params);
     const total = countResult[0].total;
     
-  // Get proposals data (all columns)
-  const dataQuery = `
+    // Get proposals data (all columns)
+    const dataQuery = `
       SELECT *
       FROM proposals_predictions 
       ${whereClause}
@@ -554,55 +367,51 @@ app.get('/api/proposals', (req, res) => {
     `;
     
     const queryParams = [...params, limit, offset];
+    const results = await db.query(dataQuery, queryParams);
     
-    db.query(dataQuery, queryParams, (err, results) => {
-      if (err) {
-        console.error('Error fetching proposals:', err);
-        return res.status(500).json({ error: 'Database error' });
+    res.json({
+      proposals: results,
+      pagination: {
+        current_page: page,
+        per_page: limit,
+        total: total,
+        total_pages: Math.ceil(total / limit)
+      },
+      issuer_filter: {
+        active: selectedIssuers && selectedIssuers.length > 0,
+        selected_issuers: selectedIssuers || [],
+        count: selectedIssuers ? selectedIssuers.length : 0
       }
-      
-      res.json({
-        proposals: results,
-        pagination: {
-          current_page: page,
-          per_page: limit,
-          total: total,
-          total_pages: Math.ceil(total / limit)
-        },
-        issuer_filter: {
-          active: selectedIssuers && selectedIssuers.length > 0,
-          selected_issuers: selectedIssuers || [],
-          count: selectedIssuers ? selectedIssuers.length : 0
-        }
-      });
     });
-  });
+  } catch (err) {
+    console.error('Error fetching proposals:', err);
+    return res.status(500).json({ error: 'Database error: ' + err.message });
+  }
 });
 
 // Get unique categories for filter
-app.get('/api/proposals/categories', (req, res) => {
-  let whereClause = '';
-  const params = [];
-  
-  // Add issuer filter
-  const selectedIssuers = req.session.selectedIssuers;
-  if (selectedIssuers && selectedIssuers.length > 0) {
-    const placeholders = selectedIssuers.map(() => '?').join(',');
-    whereClause = `WHERE issuer_name IN (${placeholders})`;
-    params.push(...selectedIssuers);
-  }
-  
-  const query = `SELECT DISTINCT category FROM proposals_predictions ${whereClause} AND category IS NOT NULL ORDER BY category`;
-  
-  db.query(query, params, (err, results) => {
-    if (err) {
-      console.error('Error fetching categories:', err);
-      return res.status(500).json({ error: 'Database error' });
+app.get('/api/proposals/categories', async (req, res) => {
+  try {
+    let whereClause = '';
+    const params = [];
+    
+    // Add issuer filter
+    const selectedIssuers = req.session.selectedIssuers;
+    if (selectedIssuers && selectedIssuers.length > 0) {
+      const placeholders = selectedIssuers.map(() => '?').join(',');
+      whereClause = `WHERE issuer_name IN (${placeholders})`;
+      params.push(...selectedIssuers);
     }
     
+    const query = `SELECT DISTINCT category FROM proposals_predictions ${whereClause} ${whereClause ? 'AND' : 'WHERE'} category IS NOT NULL ORDER BY category`;
+    
+    const results = await db.query(query, params);
     const categories = results.map(row => row.category);
     res.json(categories);
-  });
+  } catch (err) {
+    console.error('Error fetching categories:', err);
+    return res.status(500).json({ error: 'Database error: ' + err.message });
+  }
 });
 
 // Fetch accounts related to a proposal_master_skey or director_master_skey
@@ -948,19 +757,55 @@ app.post('/api/admin/set-database', requireAdmin, async (req, res) => {
     // Update current database tracking
     currentDatabase = database;
     
-    // Switch the main connection to the new database
-    db.changeUser({ database: database }, (err) => {
-      if (err) {
-        console.error('Error switching database:', err);
-        return res.status(500).json({ error: 'Failed to switch database: ' + err.message });
+    // Update the database configuration and recreate the pool
+    dbConfig.database = database;
+    
+    // Close the existing pool
+    pool.end();
+    
+    // Create new pool with updated database
+    pool = mysql.createPool(dbConfig);
+    
+    // Update the db object to use the new pool
+    db = {
+      query: (sql, params, callback) => {
+        // Handle different parameter patterns
+        if (typeof params === 'function') {
+          // Called as db.query(sql, callback) - callback style
+          callback = params;
+          params = [];
+        }
+        
+        if (callback) {
+          // Callback style - use pool.query (not execute)
+          pool.query(sql, params || [], callback);
+        } else {
+          // Promise style - use pool.query (not execute) 
+          return new Promise((resolve, reject) => {
+            pool.query(sql, params || [], (err, results) => {
+              if (err) {
+                console.error('Database query error:', err);
+                reject(err);
+              } else {
+                resolve(results);
+              }
+            });
+          });
+        }
+      },
+      execute: (sql, params, callback) => {
+        pool.execute(sql, params, callback);
+      },
+      promise: () => {
+        return pool.promise();
       }
-      
-      console.log(`Database switched to: ${database}`);
-      res.json({ 
-        success: true, 
-        currentDatabase: database,
-        message: `Successfully switched to database: ${database}`
-      });
+    };
+    
+    console.log(`Database switched to: ${database}`);
+    res.json({ 
+      success: true, 
+      currentDatabase: database,
+      message: `Successfully switched to database: ${database}`
     });
     
   } catch (error) {

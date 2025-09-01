@@ -378,7 +378,7 @@ cd efs-utils
 ./build-deb.sh
 sudo apt-get install -y ./build/amazon-efs-utils*deb
 
-# Create local mount point
+# Create local mount point  
 sudo mkdir -p /mnt/efs
 
 # Mount EFS locally (requires VPN or direct connection to AWS VPC)
